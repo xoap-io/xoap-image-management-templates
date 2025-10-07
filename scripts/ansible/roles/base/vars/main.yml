@@ -1,0 +1,49 @@
+---
+# Used to update SUSE Linux Enterprise Server.
+base_sle_module_name: sle-module-public-cloud
+base_sle_module_version: 15.7
+base_sle_architecture: x86_64
+
+base_task_name: Update the operating system and install additional packages.
+base_additional_packages:
+  # OS family: VMware Photon OS
+  VMware Photon OS:
+    - git
+    - jq
+    - logrotate
+    - minimal
+    - openssl-c_rehash
+    - parted
+    - tar
+    - unzip
+    - wget
+
+  # OS family: Debian
+  Debian:
+    - bash-completion
+    - ca-certificates
+    - curl
+    - git
+    - net-tools
+    - unzip
+    - wget
+
+  # OS family: RedHat
+  RedHat:
+    - ca-certificates
+    - curl
+    - git
+    - net-tools
+    - unzip
+    - vim
+    - wget
+
+  # OS family: Suse
+  Suse:
+    - bash-completion
+    - ca-certificates
+    - curl
+    - git-core
+    - net-tools
+    - unzip
+    - wget
