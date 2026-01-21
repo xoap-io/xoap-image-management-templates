@@ -1,0 +1,262 @@
+name: PowerShell Script Tests
+
+on:
+  push:
+    branches: [ dev, master, main ]
+    paths:
+      - '**.ps1'
+      - 'tests/**'
+      - '.github/workflows/test-powershell.yml'
+  pull_request:
+    branches: [ dev, master, main ]
+    paths:
+      - '**.ps1'
+      - 'tests/**'
+  workflow_dispatch:
+
+jobs:
+  syntax-validation:
+    name: PowerShell Syntax Validation
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Run syntax validation
+        shell: pwsh
+        run: |
+          Write-Host "Running PowerShell syntax validation..."
+          $ErrorActionPreference = 'Continue'
+          
+          $scripts = Get-ChildItem -Path . -Filter *.ps1 -Recurse | 
+            Where-Object { 
+              $_.FullName -notlike "*\node_modules\*" -and 
+              $_.FullName -notlike "*\.git\*"
+            }
+          
+          $failedScripts = @()
+          
+          foreach ($script in $scripts) {
+            Write-Host "Checking: $($script.FullName)"
+            $errors = $null
+            $null = [System.Management.Automation.PSParser]::Tokenize(
+              (Get-Content $script.FullName -Raw), 
+              [ref]$errors
+            )
+            
+            if ($errors.Count -gt 0) {
+              Write-Host "::error file=$($script.FullName)::Syntax errors found"
+              $errors | ForEach-Object { Write-Host "  $_" }
+              $failedScripts += $script.FullName
+            }
+          }
+          
+          if ($failedScripts.Count -gt 0) {
+            Write-Host "::error::$($failedScripts.Count) script(s) failed syntax validation"
+            exit 1
+          }
+          
+          Write-Host "✓ All scripts passed syntax validation"
+
+  pester-tests:
+    name: Pester Unit Tests
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+          Import-Module Pester -PassThru
+      
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = 'test-results.xml'
+          $config.CodeCoverage.Enabled = $false
+          
+          Invoke-Pester -Configuration $config
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pester-test-results
+          path: test-results.xml
+
+  script-execution-tests:
+    name: Script Execution Tests
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Run test runner
+        shell: pwsh
+        run: |
+          if (Test-Path ./tests/Test-PowerShellScripts.ps1) {
+            ./tests/Test-PowerShellScripts.ps1 -SkipExecution
+          } else {
+            Write-Host "Test runner not found, skipping"
+          }
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-test-results
+          path: tests/test-results.json
+
+  cross-platform-validation:
+    name: Cross-Platform Validation
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup PowerShell (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y powershell
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            brew install --cask powershell
+          fi
+      
+      - name: Validate PowerShell scripts
+        shell: pwsh
+        run: |
+          Write-Host "Validating on: ${{ matrix.os }}"
+          $scripts = Get-ChildItem -Path . -Filter *.ps1 -Recurse -ErrorAction SilentlyContinue
+          Write-Host "Found $($scripts.Count) PowerShell scripts"
+          
+          $errors = 0
+          foreach ($script in $scripts) {
+            try {
+              $null = [System.Management.Automation.PSParser]::Tokenize(
+                (Get-Content $script.FullName -Raw), 
+                [ref]$parseErrors
+              )
+              if ($parseErrors.Count -gt 0) {
+                $errors++
+              }
+            } catch {
+              Write-Host "Error parsing $($script.Name): $_"
+              $errors++
+            }
+          }
+          
+          if ($errors -gt 0) {
+            Write-Host "::error::$errors script(s) failed validation"
+            exit 1
+          }
+
+  autounattend-validation:
+    name: Autounattend XML Validation
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Validate XML files
+        shell: pwsh
+        run: |
+          Write-Host "Validating Autounattend XML files..."
+          $xmlFiles = Get-ChildItem -Path autounattend -Filter *.xml -Recurse
+          
+          $failedFiles = @()
+          
+          foreach ($xmlFile in $xmlFiles) {
+            Write-Host "Checking: $($xmlFile.FullName)"
+            try {
+              $null = [xml](Get-Content $xmlFile.FullName -Raw)
+            } catch {
+              Write-Host "::error file=$($xmlFile.FullName)::Invalid XML: $_"
+              $failedFiles += $xmlFile.FullName
+            }
+          }
+          
+          if ($failedFiles.Count -gt 0) {
+            Write-Host "::error::$($failedFiles.Count) XML file(s) failed validation"
+            exit 1
+          }
+          
+          Write-Host "✓ All XML files are valid"
+
+  security-scan:
+    name: Security Scanning
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Scan for hardcoded secrets
+        shell: pwsh
+        run: |
+          Write-Host "Scanning for hardcoded secrets in PowerShell scripts..."
+          
+          $patterns = @(
+            'password\s*=\s*[''"][^''"]+'
+            'api[_-]?key\s*=\s*[''"][^''"]+'
+            'secret\s*=\s*[''"][^''"]+'
+            'token\s*=\s*[''"][^''"]+'
+          )
+          
+          $scripts = Get-ChildItem -Path . -Filter *.ps1 -Recurse
+          $findings = @()
+          
+          foreach ($script in $scripts) {
+            $content = Get-Content $script.FullName -Raw
+            foreach ($pattern in $patterns) {
+              if ($content -match $pattern) {
+                # Exclude XOAP default password (documented)
+                if ($content -notmatch 'xoap-admin' -or $pattern -notmatch 'password') {
+                  $findings += "$($script.FullName): Potential secret found matching '$pattern'"
+                }
+              }
+            }
+          }
+          
+          if ($findings.Count -gt 0) {
+            Write-Host "::warning::Potential secrets found in scripts"
+            $findings | ForEach-Object { Write-Host "::warning::$_" }
+          } else {
+            Write-Host "✓ No hardcoded secrets detected"
+          }
+
+  test-summary:
+    name: Test Summary
+    needs: [syntax-validation, pester-tests, script-execution-tests, cross-platform-validation, autounattend-validation]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Check test results
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Suite | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Syntax Validation | ${{ needs.syntax-validation.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pester Tests | ${{ needs.pester-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Script Execution | ${{ needs.script-execution-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cross-Platform | ${{ needs.cross-platform-validation.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| XML Validation | ${{ needs.autounattend-validation.result }} |" >> $GITHUB_STEP_SUMMARY

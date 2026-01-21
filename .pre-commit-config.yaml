@@ -18,6 +18,7 @@ repos:
       - id: check-builtin-literals
       - id: check-json
       - id: check-xml
+        exclude: ^autounattend/.*\.xml$
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-shebang-scripts-are-executable

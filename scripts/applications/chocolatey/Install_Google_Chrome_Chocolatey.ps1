@@ -40,6 +40,28 @@ trap {
 }
 
 try {
+    # Check if Chocolatey is installed
+    Write-Log "Checking for Chocolatey installation..."
+    $chocoCmd = Get-Command choco -ErrorAction SilentlyContinue
+    
+    if (-not $chocoCmd) {
+        Write-Log "Chocolatey not found. Installing Chocolatey..."
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        
+        # Refresh environment variables
+        $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+        
+        # Verify installation
+        $chocoCmd = Get-Command choco -ErrorAction SilentlyContinue
+        if (-not $chocoCmd) {
+            throw "Chocolatey installation failed"
+        }
+        Write-Log "Chocolatey installed successfully."
+    } else {
+        Write-Log "Chocolatey is already installed (version: $(choco --version))."
+    }
+    
     Write-Log "Installing Google Chrome via Chocolatey..."
     choco install googlechrome -y --no-progress
     Write-Log "Google Chrome installed successfully."

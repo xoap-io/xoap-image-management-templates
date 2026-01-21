@@ -1,0 +1,18 @@
+[
+  {
+    "ExecutionTest": "FAIL",
+    "Script": "/Users/sinisasokolic/Documents/xoap-packer-templates/tests/Scripts.Tests.ps1",
+    "SyntaxCheck": "PASS",
+    "Errors": [
+      "Exception calling \"GetCurrent\" with \"0\" argument(s): \"Windows Principal functionality is not supported on this platform.\""
+    ]
+  },
+  {
+    "ExecutionTest": "FAIL",
+    "Script": "/Users/sinisasokolic/Documents/xoap-packer-templates/tests/Test-PowerShellScripts.ps1",
+    "SyntaxCheck": "PASS",
+    "Errors": [
+      "Exception calling \"GetCurrent\" with \"0\" argument(s): \"Windows Principal functionality is not supported on this platform.\""
+    ]
+  }
+]
