@@ -20,9 +20,17 @@
 
 ## Introduction
 
-This is the XOAP Packer repository.
+This is the XOAP Image Management repository for automated Windows VM image creation.
 
 It is part of our [XOAP](https://xoap.io) Automation Forces Open Source community library to give you a quick start into Infrastructure as Code deployments with Packer in addition to image.XO.
+
+**Key Features:**
+
+- 🖼️ **114 Autounattend Files** - Comprehensive unattended installation support for Windows Server (2016-2025) and Windows 11 across 5 hypervisor platforms
+- ☁️ **Multi-Cloud Support** - AWS EC2, Azure VMs, Google Compute Engine with optimized provisioning scripts
+- 🔧 **Hypervisor Coverage** - VMware vSphere, Nutanix AHV, Citrix XenServer, Hyper-V Gen1/Gen2, Proxmox VE
+- 🎯 **Azure Stack HCI** - Dedicated support for Azure Stack HCI editions (Server 2022/2025)
+- 📦 **Automated Provisioning** - PowerShell scripts for guest tools installation, performance optimization, and sysprep preparation
 
 Please check the links for more info, including usage information and full documentation:
 
@@ -113,6 +121,92 @@ They were tested and run with on following infrastructure:
 - VMware Fusion Pro 12.3.3
 - Windows 10 22H2 Enterprise with Hyper-V
 
+### Supported Platforms
+
+#### Hypervisors
+
+- **VMware vSphere/ESXi** - BIOS boot with VMXNET3/PVSCSI drivers
+- **Nutanix AHV** - BIOS boot with VirtIO drivers (2k19/2k22/2k25/w11)
+- **Citrix XenServer** - BIOS boot with XenServer PV drivers
+- **Hyper-V Gen1** - BIOS boot with Integration Services
+- **Hyper-V Gen2** - UEFI boot with 4-partition layout
+- **Proxmox VE** - QEMU/KVM with VirtIO drivers
+
+#### Cloud Platforms
+
+- **AWS EC2** - AMI creation with ENA drivers and IMDSv2 support
+- **Azure VMs** - VM image creation with Accelerated Networking
+- **Google Compute Engine** - GCE image creation with gVNIC support
+
+#### Windows Versions
+
+- **Windows Server 2016** (1607) - 4 editions
+- **Windows Server 2019** (1809) - 4 editions
+- **Windows Server 2022** (2108) - 5 editions (inc. Azure Stack HCI)
+- **Windows Server 2025** (2412) - 5 editions (inc. Azure Stack HCI)
+- **Windows 11 24H2** - 10 editions
+
+### Autounattend Files
+
+The `autounattend/` directory contains **114 hypervisor-specific unattended installation files** organized by Windows version and hypervisor:
+
+```PowerSHell
+autounattend/
+├── 2019/               # Windows Server 2019
+│   ├── vsphere/        # 4 editions
+│   ├── nutanix/        # 4 editions with VirtIO
+│   ├── xenserver/      # 4 editions
+│   ├── hyperv/         # 4 editions (Gen1/BIOS)
+│   └── hyperv-gen2/    # 4 editions (Gen2/UEFI)
+├── 2022/               # Windows Server 2022
+│   ├── vsphere/        # 5 editions (inc. Azure Stack HCI)
+│   ├── nutanix/        # 5 editions
+│   ├── xenserver/      # 5 editions
+│   ├── hyperv/         # 5 editions
+│   └── hyperv-gen2/    # 5 editions
+├── 2025/               # Windows Server 2025
+│   └── ...             # Same structure as 2022
+└── W11/                # Windows 11 24H2
+    └── ...             # 10 editions per hypervisor
+```
+
+**Available Editions:**
+
+- StandardCore, Standard, DatacenterCore, Datacenter
+- Azure Stack HCI (Server 2022/2025 only)
+- Windows 11: Education, Enterprise, Pro, Pro for Workstations (all with N variants)
+
+See [autounattend/README.md](autounattend/README.md) for complete documentation.
+
+### Provisioning Scripts
+
+PowerShell scripts for guest tools installation, optimization, and sysprep located in `scripts_wip/windows_server_2025_scripts/`:
+
+#### Cloud Platform Scripts
+
+- **AWS EC2**
+  - `aws/Install_AWS_Tools.ps1` - AWS CLI, SSM Agent, CloudWatch Agent
+  - `aws/Optimize_AWS_EC2_Performance.ps1` - ENA driver, NVMe storage optimization
+  - `aws/amazon-ebs-sysprep.ps1` - EC2Launch v2 sysprep preparation
+
+- **Azure VMs**
+  - `azure/Install_Azure_Tools.ps1` - Azure VM Agent, CLI, Monitor Agent
+  - `azure/Optimize_Azure_Performance.ps1` - Accelerated Networking, disk optimization
+  - `azure/azure-vm-sysprep.ps1` - Azure-specific sysprep
+
+- **Google Cloud**
+  - `google/Install_GCP_Tools.ps1` - Cloud SDK, Operations Agent
+  - `google/Optimize_GCP_Performance.ps1` - VirtIO network/storage tuning
+  - `google/gcp-vm-sysprep.ps1` - GCE sysprep preparation
+
+#### Hypervisor Scripts
+
+- **VMware** - Tools installation, PVSCSI/vmxnet3 optimization
+- **Hyper-V** - Integration Services, Enhanced Session Mode
+- **Proxmox** - QEMU Guest Agent, VirtIO driver tuning
+- **Nutanix** - NutanixGuestAgent, AHV optimization
+- **XenServer** - PV drivers, platform-specific tuning
+
 ### Pre-Commit-Hooks
 
 We added https://github.com/xoap-io/pre-commit-packer which enables validating and formatting the packer configuration files.
@@ -133,13 +227,21 @@ filters = [
 
 If you want your images to be updated to the latest feature level, remove the following line:
 
-"exclude:$\_.Title -like '_Feature update_'",
+"exclude:$\_.Title -like '*Feature update*'",
 
 ### helper
 
-We added the KMS keys for the Windows based operating systems in helper/key-management-services.md
+We added the KMS keys for the Windows based operating systems in [helper/key-management-services.md](helper/key-management-services.md).
 
-You can also find all the ISO image related operating system Keys for the unattended.xml in the same directory.
+You can also find all the ISO image-related operating system keys and WIM image names in the same directory:
+
+- [Windows Server 2016 Image Names](helper/w2016-1607-image-names-ids.md)
+- [Windows Server 2019 Image Names](helper/w2019-1809-image-names-ids.md)
+- [Windows Server 2022 Image Names](helper/w2022-2108-image-names-ids.md)
+- [Windows Server 2025 Image Names](helper/w2025-2412-image-names-ids.md)
+- [Windows 11 24H2 Image Names](helper/w11-24h2-image-names-ids.md)
+
+Use these WIM image names in your autounattend files to select the correct Windows edition during installation.
 
 ### amazon-ebs builder
 
@@ -162,3 +264,42 @@ See https://docs.aws.amazon.com/AWSEC2/latest/WindowsGuide/ec2launch-v2.html for
 ### azure-arm builder
 
 ### vmware-iso builder
+
+All VMware-based templates are located in the `vmware-iso/` directory. Use the autounattend files from `autounattend/{version}/vsphere/` for automated installations.
+
+**Example:**
+
+```hcl
+vm_cdrom_path = "autounattend/2022/vsphere/Autounattend-Datacenter.xml"
+```
+
+### Hyper-V Support
+
+Hyper-V templates support both Generation 1 (BIOS) and Generation 2 (UEFI) VMs:
+
+- **Gen1 (BIOS):** Use files from `autounattend/{version}/hyperv/`
+  - 2-partition layout (100MB boot + Windows)
+  
+- **Gen2 (UEFI):** Use files from `autounattend/{version}/hyperv-gen2/`
+  - 4-partition layout (350MB Recovery + 100MB EFI + 128MB MSR + Windows)
+  - Required for Windows 11 and modern UEFI systems
+
+### Nutanix AHV
+
+Nutanix templates require VirtIO drivers mounted as a second CD-ROM drive. The autounattend files in `autounattend/{version}/nutanix/` include all necessary VirtIO driver paths.
+
+**VirtIO Driver Paths:**
+
+- Windows Server 2019: `E:\viostor\2k19\amd64`
+- Windows Server 2022: `E:\viostor\2k22\amd64`
+- Windows Server 2025: `E:\viostor\2k25\amd64`
+- Windows 11: `E:\viostor\w11\amd64`
+
+### Azure Stack HCI
+
+Azure Stack HCI editions are available for Windows Server 2022 and 2025 across all hypervisors:
+
+- `autounattend/2022/hyperv/Autounattend-AzureStackHCI.xml`
+- `autounattend/2022/hyperv-gen2/Autounattend-AzureStackHCI.xml`
+- `autounattend/2025/hyperv/Autounattend-AzureStackHCI.xml`
+- `autounattend/2025/hyperv-gen2/Autounattend-AzureStackHCI.xml`
