@@ -21,7 +21,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Run syntax validation
         shell: pwsh
@@ -65,7 +65,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Install Pester
         shell: pwsh
@@ -99,7 +99,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Run test runner
         shell: pwsh
@@ -127,7 +127,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Setup PowerShell (Linux/macOS)
         if: runner.os != 'Windows'
@@ -173,7 +173,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Validate XML files
         shell: pwsh
@@ -206,7 +206,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Scan for hardcoded secrets
         shell: pwsh
