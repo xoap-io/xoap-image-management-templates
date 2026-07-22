@@ -23,6 +23,14 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Continue'
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [RemoveCap] Transcript unavailable: $($_.Exception.Message)" }
+
 function Write-Log {
     param(
         [Parameter(Mandatory)]
@@ -60,6 +68,8 @@ $selectors = @(
 )
 
 try {
+    Write-Log "===== Remove_Windows_Capabilities starting ====="
+    $startTime = Get-Date
     Write-Log "Starting Windows capability removal..."
     
     $installed = Get-WindowsCapability -Online | Where-Object {
@@ -85,8 +95,11 @@ try {
     }
     
     Write-Log "Capability removal process completed"
-    
+    Write-Log "===== Remove_Windows_Capabilities complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } catch {
     Write-Log "Capability removal failed: $($_.Exception.Message)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

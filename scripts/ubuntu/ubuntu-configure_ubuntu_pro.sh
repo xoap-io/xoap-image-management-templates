@@ -79,7 +79,7 @@ if ! command -v pro &>/dev/null; then
     log_info "Installing ubuntu-advantage-tools..."
     
     if DEBIAN_FRONTEND=noninteractive apt-get install -y ubuntu-advantage-tools; then
-        log_info "✓ ubuntu-advantage-tools installed"
+        log_info "[OK] ubuntu-advantage-tools installed"
     else
         log_error "Failed to install ubuntu-advantage-tools"
         exit 1
@@ -104,7 +104,7 @@ if pro status 2>/dev/null | grep -q "This machine is attached"; then
     
     log_warn "Detaching from current subscription..."
     if pro detach --assume-yes; then
-        log_info "✓ Detached from previous subscription"
+        log_info "[OK] Detached from previous subscription"
     else
         log_error "Failed to detach from previous subscription"
         exit 1
@@ -115,7 +115,7 @@ fi
 log_info "Attaching to Ubuntu Pro subscription..."
 
 if pro attach "$PRO_TOKEN"; then
-    log_info "✓ Successfully attached to Ubuntu Pro"
+    log_info "[OK] Successfully attached to Ubuntu Pro"
 else
     log_error "Failed to attach to Ubuntu Pro"
     exit 1
@@ -128,7 +128,7 @@ for service in $ENABLE_SERVICES; do
     log_info "Enabling service: $service..."
     
     if pro enable "$service" --assume-yes; then
-        log_info "✓ $service enabled"
+        log_info "[OK] $service enabled"
         ((SERVICES_ENABLED++))
     else
         log_warn "Failed to enable $service"
@@ -159,7 +159,7 @@ log_info ""
 log_info "Updating package lists with Pro repositories..."
 
 if apt-get update -qq; then
-    log_info "✓ Package lists updated"
+    log_info "[OK] Package lists updated"
 else
     log_warn "Failed to update package lists"
 fi

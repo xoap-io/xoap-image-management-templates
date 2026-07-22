@@ -1,0 +1,117 @@
+# Windows 11 Enterprise — Nutanix AHV base golden image (alpaka v6 / nutanix).
+#
+# Builds a clean, optimized and generalized Windows 11 Enterprise base image on Nutanix AHV via
+# Prism Central, using the repo's Nutanix W11 Autounattend answer file and the Nutanix Guest Tools.
+#
+# Script paths below are resolved by alpaka INSIDE this template directory. Vendor them first:
+# `pwsh examples/sync-demo-scripts.ps1 -Set w11-base-nutanix`.
+version: "2.0"
+description: "Windows 11 Enterprise Nutanix AHV base golden image"
+
+variables:
+  nutanix_endpoint: "{{env `NUTANIX_ENDPOINT`}}"
+  cluster_name: "{{env `NUTANIX_CLUSTER`}}"
+  vm_name: "w11-base"
+  timestamp: "{{timestamp}}"
+
+sensitive_variables:
+  - winrm_password
+
+target_platforms:
+  - name: "w11-base-nutanix"
+    type: "nutanix"
+    # --- Prism Central connection ---
+    nutanix_username: "{{env `NUTANIX_USERNAME`}}"
+    nutanix_password: "{{env `NUTANIX_PASSWORD`}}"
+    nutanix_endpoint: "{{ nutanix_endpoint }}"
+    nutanix_port: 9440
+    nutanix_insecure: true
+    cluster_name: "{{ cluster_name }}"
+    os_type: "Windows"
+
+    # --- VM hardware ---
+    vm_name: "{{ vm_name }}"
+    cpu: 4
+    core: 2
+    memory_mb: 8192
+    boot_type: "UEFI"
+    vtpm_enabled: true
+
+    # --- Autounattend (Windows 11 Enterprise, Nutanix) attached via CD ---
+    cd_files:
+      - "../../../autounattend/W11/nutanix/Autounattend-Enterprise.xml"
+    cd_label: "config"
+
+    # --- Disks: install ISO (registered in Prism) + OS disk ---
+    vm_disks:
+      - image_type: "ISO_IMAGE"
+        source_image_name: "{{env `NUTANIX_ISO_IMAGE`}}"
+        disk_size_gb: 0
+      - image_type: "DISK"
+        disk_size_gb: 64
+    cdrom_remove: true
+
+    # --- Network ---
+    vm_nics:
+      - subnet_name: "{{env `NUTANIX_SUBNET`}}"
+
+    # --- WinRM (provisioning connection) ---
+    connection: "winrm"
+    winrm_username: "Administrator"
+    winrm_password: "{{env `NUTANIX_WIN_ADMIN_PASSWORD`}}"
+    winrm_port: 5986
+    winrm_use_ssl: true
+    winrm_insecure: true
+    winrm_timeout: "30m"
+
+    # --- Output: base image/template ---
+    image_name: "w11-base-{{ timestamp }}"
+    image_description: "Windows 11 Enterprise base golden image built by Alpaka"
+    shutdown_command: "shutdown /s /t 10 /f /d p:4:1 /c \"Alpaka Shutdown\""
+    shutdown_timeout: "15m"
+
+actions:
+  - type: powershell
+    name: install-nutanix-guest-tools
+    script: "scripts/windows11-Install_Nutanix_Tools.ps1"
+    timeout: "20m"
+    valid_exit_codes: [0, 3010]
+
+  - type: powershell
+    name: optimize-w11
+    script: "scripts/windows11-Optimize_W11_25H2.ps1"
+    timeout: "20m"
+
+  - type: powershell
+    name: cleanup
+    script: "scripts/windows11-Cleanup_Temporary_Files.ps1"
+    timeout: "20m"
+
+  # --- stage + run Pester before sysprep (a failed test aborts the build) ---
+  - type: file
+    name: stage-tests
+    source: "../tests/W11BaseNutanix.Tests.ps1"
+    destination: "C:/Alpaka/Tests/W11BaseNutanix.Tests.ps1"
+    direction: "upload"
+
+  - type: powershell
+    name: pester-validate
+    timeout: "20m"
+    inline:
+      - "Set-ExecutionPolicy Bypass -Scope Process -Force; [Net.ServicePointManager]::SecurityProtocol=3072; Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null; if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'5.0.0' })) { Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope AllUsers }; Import-Module Pester -MinimumVersion 5.0.0 -Force; $cfg = New-PesterConfiguration; $cfg.Run.Path='C:\\Alpaka\\Tests'; $cfg.Run.PassThru=$true; $cfg.Output.Verbosity='Detailed'; $r=Invoke-Pester -Configuration $cfg; if ($r.FailedCount -gt 0) { throw (\"Pester: {0}/{1} tests failed\" -f $r.FailedCount,$r.TotalCount) }"
+
+  - type: powershell
+    name: sysprep-generalize
+    script: "scripts/windows-server-Invoke_Sysprep.ps1"
+    timeout: "30m"
+    environment:
+      SYSPREP_VMMODE: "1"
+      SYSPREP_MODE: "OOBE"
+      SYSPREP_SHUTDOWN: "Shutdown"
+    valid_exit_codes: [0, 3010]
+
+post_build:
+  - name: "manifest"
+    type: "manifest"
+    output: "w11-base-nutanix-manifest.json"
+    strip_path: true

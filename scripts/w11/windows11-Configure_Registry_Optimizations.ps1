@@ -54,7 +54,13 @@ $LogDir = 'C:\xoap-logs'
 $BackupDir = Join-Path $LogDir 'registry-backups'
 $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [Registry] Transcript unavailable: $($_.Exception.Message)" }
 
 # Statistics tracking
 $script:OptimizationsApplied = 0
@@ -70,14 +76,14 @@ function Write-LogMessage {
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+    $levelTag = switch ($Level) {
+        'Warning' { 'WARN' }
+        'Error'   { 'ERROR' }
+        'Success' { 'INFO' }
+        default   { 'INFO' }
     }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
+    $logMessage = "[$timestamp] [$levelTag] [Registry] $Message"
+
     switch ($Level) {
         'Error'   { Write-Host $logMessage -ForegroundColor Red }
         'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
@@ -112,14 +118,14 @@ function Set-RegistryValue {
         New-ItemProperty -Path $Path -Name $Name -Value $Value -PropertyType $Type -Force | Out-Null
         
         if ($Description) {
-            Write-LogMessage "  ✓ $Description" -Level Info
+            Write-LogMessage "  [OK] $Description" -Level Info
         }
         
         $script:OptimizationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Failed to set $Path\$Name : $($_.Exception.Message)" -Level Warning
+        Write-LogMessage "  [FAIL] Failed to set $Path\$Name : $($_.Exception.Message)" -Level Warning
         $script:OptimizationsFailed++
         return $false
     }
@@ -429,7 +435,8 @@ function Main {
     Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
     Write-LogMessage "Log file: $LogFile" -Level Info
     Write-LogMessage "" -Level Info
-    
+    Write-LogMessage "===== Configure_Registry_Optimizations complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+
     if ($script:OptimizationsFailed -eq 0) {
         Write-LogMessage "Registry optimizations completed successfully!" -Level Success
         Write-LogMessage "NOTE: Some changes may require a system restart to take effect" -Level Warning
@@ -443,12 +450,17 @@ function Main {
 
 # Execute main function
 try {
+    $startTime = Get-Date
+    Write-LogMessage "===== Configure_Registry_Optimizations starting ====="
     Main
 }
 catch {
     Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
     Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

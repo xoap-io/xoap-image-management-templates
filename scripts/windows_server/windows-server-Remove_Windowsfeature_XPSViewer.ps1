@@ -27,68 +27,75 @@ $ProgressPreference = 'SilentlyContinue'
 $WindowsFeature = 'XPS-Viewer'
 
 # Logging function
+$script:Component = 'XPSViewer'
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0)]
         [string]$Message,
-        
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    Write-Host "[$timestamp] [$prefix] [XPSViewer] $Message"
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
 }
 
-# Main script execution
+$LogDir = 'C:\xoap-logs'
 try {
-    Write-Log "Starting XPS Viewer removal check..."
-    
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [XPSViewer] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
+
+# Main script execution
+$startTime = Get-Date
+
+try {
+    Write-Log "===== Remove_Windowsfeature_XPSViewer starting ====="
+
     # Verify ServerManager module is available
     if (-not (Get-Module -ListAvailable -Name ServerManager)) {
         throw "ServerManager module is not available on this system"
     }
-    
+
     Import-Module ServerManager -ErrorAction Stop
-    
+
     # Check feature status
     $feature = Get-WindowsFeature -Name $WindowsFeature -ErrorAction Stop
-    
+
     if (-not $feature) {
-        Write-Log "Feature '$WindowsFeature' does not exist on this system" -Level Warning
+        Write-Log "Feature '$WindowsFeature' does not exist on this system" -Level WARN
+        Write-Log "===== Remove_Windowsfeature_XPSViewer complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
         exit 0
     }
-    
+
     switch ($feature.InstallState) {
         'Available' {
             Write-Log "Feature '$WindowsFeature' is already removed"
-            exit 0
         }
         'Installed' {
             Write-Log "Removing feature '$WindowsFeature'..."
             $result = Uninstall-WindowsFeature -Name $WindowsFeature -IncludeAllSubFeature -ErrorAction Stop
-            
+
             if ($result.Success) {
                 Write-Log "Feature '$WindowsFeature' removed successfully"
                 if ($result.RestartNeeded -eq 'Yes') {
-                    Write-Log "A system restart is required to complete the removal" -Level Warning
+                    Write-Log "A system restart is required to complete the removal" -Level WARN
                 }
             } else {
                 throw "Removal failed with exit code: $($result.ExitCode)"
             }
         }
         default {
-            Write-Log "Feature '$WindowsFeature' is in state: $($feature.InstallState)" -Level Warning
+            Write-Log "Feature '$WindowsFeature' is in state: $($feature.InstallState)" -Level WARN
         }
     }
-    
+
+    Write-Log "===== Remove_Windowsfeature_XPSViewer complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
-    Write-Log "Error: $($_.Exception.Message)" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

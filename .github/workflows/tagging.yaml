@@ -28,12 +28,12 @@ jobs:
         uses: TheDoctor0/zip-release@0.7.1
         with:
           type: 'zip'
-          filename: 'xoap-packer-templates_${{ steps.tag_version.outputs.new_tag }}.zip'
-          exclusions: '*.git* /*License/* CONTRIBUTING.md CODEOWNERS.md CODE_OF_CONDUCT.md .pre-commit.yaml .gitignore .gitattributes .github'
+          filename: 'xoap-image-management-templates_${{ steps.tag_version.outputs.new_tag }}.zip'
+          exclusions: '*.git* /*License/* CONTRIBUTING.md CODE_OF_CONDUCT.md .pre-commit-config.yaml .gitignore .gitattributes .github'
       - name: Create a GitHub release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: 'xoap-packer-templates_${{ steps.tag_version.outputs.new_tag }}.zip'
+          artifacts: 'xoap-image-management-templates_${{ steps.tag_version.outputs.new_tag }}.zip'
           tag: ${{ steps.tag_version.outputs.new_tag }}
           name: Release ${{ steps.tag_version.outputs.new_tag }}
           body: ${{ steps.tag_version.outputs.changelog }}

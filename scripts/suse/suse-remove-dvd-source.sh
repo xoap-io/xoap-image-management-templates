@@ -140,9 +140,9 @@ log_info "Verifying DVD repository removal..."
 REMAINING_SLES=$(zypper repos 2>/dev/null | grep -i 'SLES' | grep "^SLES" | wc -l || echo "0")
 
 if [[ $REMAINING_SLES -eq 0 ]]; then
-    log_info "✓ All SLES DVD repositories successfully removed"
+    log_info "[OK] All SLES DVD repositories successfully removed"
 else
-    log_warn "✗ Some SLES repositories may still remain: $REMAINING_SLES"
+    log_warn "[FAIL] Some SLES repositories may still remain: $REMAINING_SLES"
 fi
 
 # Summary statistics

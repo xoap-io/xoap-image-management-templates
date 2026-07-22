@@ -62,7 +62,7 @@ if [[ ! -d "$NGT_MOUNT" ]]; then
         if [[ -b "$device" ]]; then
             mkdir -p "$NGT_MOUNT"
             if mount -o ro "$device" "$NGT_MOUNT" 2>/dev/null; then
-                log_info "✓ Mounted Nutanix Tools ISO from $device"
+                log_info "[OK] Mounted Nutanix Tools ISO from $device"
                 break
             fi
         fi
@@ -75,7 +75,7 @@ if [[ -d "$NGT_MOUNT" ]] && [[ -f "$NGT_MOUNT/installer/linux/install_ngt.py" ]]
     cd "$NGT_MOUNT/installer/linux"
     
     if python3 install_ngt.py 2>&1 | tee /tmp/ngt-install.log; then
-        log_info "✓ Nutanix Guest Tools installed"
+        log_info "[OK] Nutanix Guest Tools installed"
         ((PACKAGES_INSTALLED++))
     else
         log_error "Failed to install Nutanix Guest Tools"
@@ -87,7 +87,7 @@ else
     log_info "Installing qemu-guest-agent as alternative..."
     
     if DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent; then
-        log_info "✓ qemu-guest-agent installed as alternative"
+        log_info "[OK] qemu-guest-agent installed as alternative"
         ((PACKAGES_INSTALLED++))
     else
         log_error "Failed to install qemu-guest-agent"
@@ -103,7 +103,7 @@ if systemctl list-unit-files | grep -q "ngt_guest_agent"; then
     systemctl start ngt_guest_agent
     
     if systemctl is-active --quiet ngt_guest_agent; then
-        log_info "✓ Nutanix Guest Agent is running"
+        log_info "[OK] Nutanix Guest Agent is running"
     else
         log_warn "Nutanix Guest Agent failed to start"
     fi
@@ -115,7 +115,7 @@ else
         systemctl start qemu-guest-agent
         
         if systemctl is-active --quiet qemu-guest-agent; then
-            log_info "✓ qemu-guest-agent is running"
+            log_info "[OK] qemu-guest-agent is running"
         fi
     fi
 fi

@@ -75,7 +75,7 @@ fi
 log_info "Removing all subscriptions..."
 
 if subscription-manager remove --all 2>/dev/null; then
-    log_info "✓ All subscriptions removed"
+    log_info "[OK] All subscriptions removed"
     ((CLEANUP_ITEMS++))
 else
     log_warn "Failed to remove subscriptions (may not be attached)"
@@ -85,7 +85,7 @@ fi
 log_info "Unregistering from Red Hat Subscription Management..."
 
 if subscription-manager unregister 2>/dev/null; then
-    log_info "✓ System unregistered successfully"
+    log_info "[OK] System unregistered successfully"
     ((CLEANUP_ITEMS++))
 else
     log_warn "Failed to unregister (may already be unregistered)"
@@ -95,7 +95,7 @@ fi
 log_info "Cleaning up subscription data..."
 
 if subscription-manager clean; then
-    log_info "✓ Subscription data cleaned"
+    log_info "[OK] Subscription data cleaned"
     ((CLEANUP_ITEMS++))
 else
     log_warn "Failed to clean subscription data"
@@ -159,7 +159,7 @@ if subscription-manager status &>/dev/null; then
         log_warn "  $line"
     done
 else
-    log_info "✓ System is no longer registered"
+    log_info "[OK] System is no longer registered"
 fi
 
 # Check for remaining certificates
@@ -171,7 +171,7 @@ if [[ "$REMAINING_CERTS" -gt 0 ]]; then
         log_warn "  $cert"
     done
 else
-    log_info "✓ No remaining certificates found"
+    log_info "[OK] No remaining certificates found"
 fi
 
 # Summary statistics

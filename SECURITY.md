@@ -45,7 +45,7 @@ The Install_AWS_Tools.ps1 script logs AWS credentials in plaintext
 to C:\xoap-logs when encountering authentication errors.
 
 Affected Components:
-- scripts_wip/windows_server_2025_scripts/aws/Install_AWS_Tools.ps1
+- scripts/windows_server/aws/Install_AWS_Tools.ps1
 - Lines 45-52
 
 Steps to Reproduce:

@@ -133,9 +133,9 @@ DISK_FREED=$((DISK_BEFORE - DISK_AFTER))
 
 # Verify current kernel is still installed
 if rpm -q "kernel-${CURRENT_KERNEL}" &>/dev/null || rpm -q "kernel-core-${CURRENT_KERNEL}" &>/dev/null; then
-    log_info "✓ Current kernel is still installed"
+    log_info "[OK] Current kernel is still installed"
 else
-    log_warn "✗ Current kernel package verification failed (may be normal)"
+    log_warn "[FAIL] Current kernel package verification failed (may be normal)"
 fi
 
 # List remaining kernels

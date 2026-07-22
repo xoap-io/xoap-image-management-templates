@@ -38,7 +38,7 @@
     Applies network and storage optimizations only
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -54,9 +54,12 @@ $ProgressPreference = 'SilentlyContinue'
 
 # Configuration
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'aws-ec2-optimize'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [EC2Opt] Transcript unavailable: $($_.Exception.Message)" }
 
 $script:OptimizationsApplied = 0
 $script:OptimizationsFailed = 0
@@ -66,23 +69,18 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [EC2Opt] $Message"
+    $logMessage = "[$timestamp] [$Level] [EC2Opt] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -92,6 +90,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Optimize_AWS_EC2_Performance starting ====="
     
     Write-Log "========================================================="
     Write-Log "AWS EC2 Performance Optimization"
@@ -115,12 +114,12 @@ try {
     try {
         $instanceId = Invoke-RestMethod -Uri 'http://169.254.169.254/latest/meta-data/instance-id' -TimeoutSec 2 -ErrorAction Stop
         $instanceType = Invoke-RestMethod -Uri 'http://169.254.169.254/latest/meta-data/instance-type' -TimeoutSec 2 -ErrorAction Stop
-        Write-Log "✓ Running on EC2 instance: $instanceId"
+        Write-Log "[OK] Running on EC2 instance: $instanceId"
         Write-Log "  Instance Type: $instanceType"
         $isEC2 = $true
     }
     catch {
-        Write-Log "Warning: Not running on EC2 instance" -Level Warning
+        Write-Log "Warning: Not running on EC2 instance" -Level WARN
         Write-Log "Continuing with optimizations anyway..."
     }
     
@@ -136,31 +135,31 @@ try {
         }
         
         if ($enaAdapter) {
-            Write-Log "✓ ENA adapter detected: $($enaAdapter.Name)"
+            Write-Log "[OK] ENA adapter detected: $($enaAdapter.Name)"
             
             try {
                 # Enable RSS (Receive Side Scaling)
                 Enable-NetAdapterRss -Name $enaAdapter.Name -ErrorAction SilentlyContinue
-                Write-Log "✓ Enabled RSS on ENA adapter"
+                Write-Log "[OK] Enabled RSS on ENA adapter"
                 
                 # Configure receive buffers
                 Set-NetAdapterAdvancedProperty -Name $enaAdapter.Name `
                     -DisplayName "Receive Buffers" -DisplayValue "4096" -ErrorAction SilentlyContinue
-                Write-Log "✓ Configured receive buffers"
+                Write-Log "[OK] Configured receive buffers"
                 
                 # Enable Large Send Offload (LSO)
                 Enable-NetAdapterLso -Name $enaAdapter.Name -ErrorAction SilentlyContinue
-                Write-Log "✓ Enabled LSO"
+                Write-Log "[OK] Enabled LSO"
                 
                 $script:OptimizationsApplied++
             }
             catch {
-                Write-Log "ENA optimization failed: $($_.Exception.Message)" -Level Warning
+                Write-Log "ENA optimization failed: $($_.Exception.Message)" -Level WARN
                 $script:OptimizationsFailed++
             }
         }
         else {
-            Write-Log "ENA adapter not detected" -Level Warning
+            Write-Log "ENA adapter not detected" -Level WARN
         }
         
         # TCP/IP optimizations
@@ -173,11 +172,11 @@ try {
             Set-ItemProperty -Path $tcpipPath -Name 'TcpAckFrequency' -Value 1 -Type DWord -Force
             Set-ItemProperty -Path $tcpipPath -Name 'TCPNoDelay' -Value 1 -Type DWord -Force
             
-            Write-Log "✓ Applied TCP/IP optimizations"
+            Write-Log "[OK] Applied TCP/IP optimizations"
             $script:OptimizationsApplied++
         }
         catch {
-            Write-Log "TCP/IP optimization failed" -Level Warning
+            Write-Log "TCP/IP optimization failed" -Level WARN
             $script:OptimizationsFailed++
         }
         
@@ -186,12 +185,12 @@ try {
             $ipv6Adapters = Get-NetAdapterBinding -ComponentID ms_tcpip6 | Where-Object { $_.Enabled -eq $true }
             if ($ipv6Adapters) {
                 Disable-NetAdapterBinding -Name '*' -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue
-                Write-Log "✓ Disabled IPv6 (not commonly used in EC2)"
+                Write-Log "[OK] Disabled IPv6 (not commonly used in EC2)"
                 $script:OptimizationsApplied++
             }
         }
         catch {
-            Write-Log "IPv6 disable failed" -Level Warning
+            Write-Log "IPv6 disable failed" -Level WARN
         }
     }
     
@@ -204,7 +203,7 @@ try {
         $nvmeDisks = Get-PhysicalDisk | Where-Object { $_.FriendlyName -like '*NVMe*' -or $_.FriendlyName -like '*Amazon*' }
         
         if ($nvmeDisks) {
-            Write-Log "✓ NVMe disks detected: $($nvmeDisks.Count)"
+            Write-Log "[OK] NVMe disks detected: $($nvmeDisks.Count)"
             foreach ($disk in $nvmeDisks) {
                 Write-Log "  - $($disk.FriendlyName) [$($disk.MediaType)]"
             }
@@ -214,20 +213,20 @@ try {
             # Disable disk defragmentation (not needed for EBS)
             Get-ScheduledTask -TaskName "*defrag*" -ErrorAction SilentlyContinue | 
                 Disable-ScheduledTask -ErrorAction SilentlyContinue
-            Write-Log "✓ Disabled scheduled defragmentation"
+            Write-Log "[OK] Disabled scheduled defragmentation"
             
             # Optimize disk timeout
             $diskPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Disk'
             Set-ItemProperty -Path $diskPath -Name 'TimeOutValue' -Value 60 -Type DWord -Force
-            Write-Log "✓ Set disk timeout to 60 seconds"
+            Write-Log "[OK] Set disk timeout to 60 seconds"
             
             # Disable System Restore (not recommended for EC2)
             try {
                 Disable-ComputerRestore -Drive "$env:SystemDrive" -ErrorAction SilentlyContinue
-                Write-Log "✓ Disabled System Restore"
+                Write-Log "[OK] Disabled System Restore"
             }
             catch {
-                Write-Log "System Restore already disabled" -Level Info
+                Write-Log "System Restore already disabled" -Level INFO
             }
             
             # Optimize for virtual environments
@@ -236,12 +235,12 @@ try {
                 New-Item -Path $layoutPath -Force | Out-Null
             }
             Set-ItemProperty -Path $layoutPath -Name 'EnableAutoLayout' -Value 0 -Type DWord -Force
-            Write-Log "✓ Disabled automatic disk layout optimization"
+            Write-Log "[OK] Disabled automatic disk layout optimization"
             
             $script:OptimizationsApplied++
         }
         catch {
-            Write-Log "Storage optimization failed: $($_.Exception.Message)" -Level Warning
+            Write-Log "Storage optimization failed: $($_.Exception.Message)" -Level WARN
             $script:OptimizationsFailed++
         }
     }
@@ -260,7 +259,7 @@ try {
             
             if ($totalMemoryGB -ge 8) {
                 Set-ItemProperty -Path $mmPath -Name 'DisablePagingExecutive' -Value 1 -Type DWord -Force
-                Write-Log "✓ Disabled paging executive"
+                Write-Log "[OK] Disabled paging executive"
             }
             else {
                 Write-Log "Keeping paging executive enabled (< 8GB RAM)"
@@ -270,12 +269,12 @@ try {
             $multiPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
             Set-ItemProperty -Path $multiPath -Name 'SystemResponsiveness' -Value 10 -Type DWord -Force
             Set-ItemProperty -Path $multiPath -Name 'NetworkThrottlingIndex' -Value 4294967295 -Type DWord -Force
-            Write-Log "✓ Optimized system responsiveness"
+            Write-Log "[OK] Optimized system responsiveness"
             
             $script:OptimizationsApplied++
         }
         catch {
-            Write-Log "Memory optimization failed: $($_.Exception.Message)" -Level Warning
+            Write-Log "Memory optimization failed: $($_.Exception.Message)" -Level WARN
             $script:OptimizationsFailed++
         }
     }
@@ -292,23 +291,23 @@ try {
         
         if ($highPerf) {
             powercfg /setactive $highPerf
-            Write-Log "✓ Set High Performance power plan"
+            Write-Log "[OK] Set High Performance power plan"
             $script:OptimizationsApplied++
         }
         
         # Disable hibernation (not needed in cloud)
         powercfg /hibernate off
-        Write-Log "✓ Disabled hibernation"
+        Write-Log "[OK] Disabled hibernation"
         
         # Disable sleep
         powercfg /change standby-timeout-ac 0
         powercfg /change standby-timeout-dc 0
-        Write-Log "✓ Disabled sleep timeouts"
+        Write-Log "[OK] Disabled sleep timeouts"
         
         $script:OptimizationsApplied++
     }
     catch {
-        Write-Log "Power optimization failed" -Level Warning
+        Write-Log "Power optimization failed" -Level WARN
         $script:OptimizationsFailed++
     }
     
@@ -329,12 +328,12 @@ try {
             if ($svc -and $svc.StartType -ne 'Disabled') {
                 Set-Service -Name $service -StartupType Disabled -ErrorAction Stop
                 Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
-                Write-Log "✓ Disabled: $service"
+                Write-Log "[OK] Disabled: $service"
                 $script:OptimizationsApplied++
             }
         }
         catch {
-            Write-Log "Failed to disable $service" -Level Warning
+            Write-Log "Failed to disable $service" -Level WARN
         }
     }
     
@@ -349,11 +348,11 @@ try {
             New-Item -Path $metadataTokenPath -Force | Out-Null
         }
         Set-ItemProperty -Path $metadataTokenPath -Name 'UseIMDSv2' -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
-        Write-Log "✓ Configured for IMDSv2"
+        Write-Log "[OK] Configured for IMDSv2"
         $script:OptimizationsApplied++
     }
     catch {
-        Write-Log "Metadata service configuration failed" -Level Warning
+        Write-Log "Metadata service configuration failed" -Level WARN
     }
     
     # Summary
@@ -372,16 +371,20 @@ try {
     Write-Log "========================================================="
     
     if ($script:OptimizationsFailed -eq 0) {
-        Write-Log "✓ All optimizations applied successfully"
+        Write-Log "[OK] All optimizations applied successfully"
     }
     else {
-        Write-Log "Warning: Some optimizations failed" -Level Warning
+        Write-Log "Warning: Some optimizations failed" -Level WARN
     }
     
     Write-Log ""
     Write-Log "Note: A system restart is recommended for all changes to take effect."
     
+    Write-Log "===== Optimize_AWS_EC2_Performance complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Optimization failed: $_" -Level Error
+    Write-Log "Optimization failed: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

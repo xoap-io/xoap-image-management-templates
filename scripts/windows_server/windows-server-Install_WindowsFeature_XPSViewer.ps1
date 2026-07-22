@@ -27,28 +27,32 @@ $ProgressPreference = 'SilentlyContinue'
 $WindowsFeature = 'XPS-Viewer'
 
 # Logging function
+$script:Component = 'XPSViewer'
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0)]
         [string]$Message,
-        
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    Write-Host "[$timestamp] [$prefix] [XPSViewer] $Message"
+
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [XPSViewer] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 # Main script execution
 try {
-    Write-Log "Starting XPS Viewer installation check..."
-    
+    $startTime = Get-Date
+    Write-Log "===== Install_WindowsFeature_XPSViewer starting ====="
+    Write-Log "Checking XPS Viewer installation status..."
+
     # Verify ServerManager module is available
     if (-not (Get-Module -ListAvailable -Name ServerManager)) {
         throw "ServerManager module is not available on this system"
@@ -60,7 +64,7 @@ try {
     $feature = Get-WindowsFeature -Name $WindowsFeature -ErrorAction Stop
     
     if (-not $feature) {
-        Write-Log "Feature '$WindowsFeature' does not exist on this system" -Level Warning
+        Write-Log "Feature '$WindowsFeature' does not exist on this system" -Level WARN
         exit 0
     }
     
@@ -76,19 +80,24 @@ try {
             if ($result.Success) {
                 Write-Log "Feature '$WindowsFeature' installed successfully"
                 if ($result.RestartNeeded -eq 'Yes') {
-                    Write-Log "A system restart is required to complete the installation" -Level Warning
+                    Write-Log "A system restart is required to complete the installation" -Level WARN
                 }
             } else {
                 throw "Installation failed with exit code: $($result.ExitCode)"
             }
         }
         default {
-            Write-Log "Feature '$WindowsFeature' is in state: $($feature.InstallState)" -Level Warning
+            Write-Log "Feature '$WindowsFeature' is in state: $($feature.InstallState)" -Level WARN
         }
     }
-    
+
+    Write-Log "===== Install_WindowsFeature_XPSViewer complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
-    Write-Log "Error: $($_.Exception.Message)" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

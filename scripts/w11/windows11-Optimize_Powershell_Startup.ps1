@@ -28,6 +28,14 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [PSOptimize] Transcript unavailable: $($_.Exception.Message)" }
+
 # Logging function
 function Write-Log {
     param(
@@ -49,6 +57,8 @@ function Write-Log {
 
 # Main script execution
 try {
+    Write-Log "===== Optimize_Powershell_Startup starting ====="
+    $startTime = Get-Date
     Write-Log "Starting PowerShell startup optimization..."
     
     # Check for administrator privileges
@@ -100,9 +110,12 @@ try {
     
     Write-Log "PowerShell startup optimization completed successfully"
     Write-Log "Processed $count assemblies"
-    
+    Write-Log "===== Optimize_Powershell_Startup complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } catch {
     Write-Log "Error: $($_.Exception.Message)" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

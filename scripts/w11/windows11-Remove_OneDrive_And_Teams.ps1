@@ -21,7 +21,7 @@
     PowerShell
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 .EXAMPLE
     .\windows11-Remove_OneDrive_And_Teams.ps1
@@ -36,34 +36,13 @@ $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
 # Initialize logging
-$script:LogFile = $null
-$script:TranscriptStarted = $false
-
-function Initialize-Logging {
-    try {
-        $logDir = 'C:\xoap-logs'
-        if (-not (Test-Path $logDir)) {
-            New-Item -Path $logDir -ItemType Directory -Force | Out-Null
-        }
-        
-        $scriptName = if ($PSCommandPath) {
-            [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-        } else {
-            'Remove_OneDrive_And_Teams'
-        }
-        
-        $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        $script:LogFile = Join-Path $logDir "$scriptName-$timestamp.log"
-        
-        Start-Transcript -Path $script:LogFile -Append | Out-Null
-        $script:TranscriptStarted = $true
-        
-        Write-Log "Logging initialized: $script:LogFile"
-    } catch {
-        Write-Warning "Failed to initialize transcript logging: $($_.Exception.Message)"
-        $script:TranscriptStarted = $false
-    }
-}
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [OneDriveTeams] Transcript unavailable: $($_.Exception.Message)" }
 
 function Write-Log {
     param(
@@ -81,19 +60,8 @@ function Write-Log {
         default   { 'INFO' }
     }
     
-    $logEntry = "[$timestamp] [$prefix] $Message"
+    $logEntry = "[$timestamp] [$prefix] [OneDriveTeams] $Message"
     Write-Host $logEntry
-}
-
-function Stop-Logging {
-    if ($script:TranscriptStarted) {
-        try {
-            Stop-Transcript | Out-Null
-            $script:TranscriptStarted = $false
-        } catch {
-            Write-Warning "Failed to stop transcript: $($_.Exception.Message)"
-        }
-    }
 }
 
 function New-DirectoryIfNotExists {
@@ -366,16 +334,15 @@ trap {
     Write-Log "Critical error: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
     Write-Log "Exception: $($_.Exception.ToString())" -Level Error
-    Stop-Logging
-    Write-Log 'Sleeping for 60m to allow investigation...' -Level Error
-    Start-Sleep -Seconds 3600
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 # Main execution
 try {
-    Initialize-Logging
-    
+    $startTime = Get-Date
+    Write-Log "===== Remove_OneDrive_And_Teams starting ====="
+
     Write-Log "=== Starting OneDrive and Teams Removal ==="
     Write-Log "Script: Remove_OneDrive_And_Teams.ps1"
     Write-Log "PowerShell Version: $($PSVersionTable.PSVersion)"
@@ -385,10 +352,13 @@ try {
     
     Write-Log "=== Removal Process Completed ==="
     Write-Log "A system restart is recommended to complete the removal"
-    
+
+    Write-Log "===== Remove_OneDrive_And_Teams complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Removal process failed: $($_.Exception.Message)" -Level Error
     exit 1
 } finally {
-    Stop-Logging
+    try { Stop-Transcript | Out-Null } catch {}
 }

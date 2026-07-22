@@ -80,28 +80,17 @@ $script:ConfigurationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+# Leveled logging function (stdout is the state channel)
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+    Write-Host "[$timestamp] [$Level] [PageFile] $Message"
 }
 
 function Test-IsAdministrator {
@@ -117,13 +106,13 @@ function Get-PhysicalMemorySize {
         return $ramGB
     }
     catch {
-        Write-LogMessage "Error getting physical memory size: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error getting physical memory size: $($_.Exception.Message)" -Level WARN
         return 0
     }
 }
 
 function Get-RecommendedPageFileSize {
-    Write-LogMessage "Calculating recommended page file size..." -Level Info
+    Write-Log "Calculating recommended page file size..." -Level INFO
     
     try {
         $ramGB = Get-PhysicalMemorySize
@@ -146,9 +135,9 @@ function Get-RecommendedPageFileSize {
             $maximumMB = [math]::Max(16384, [math]::Round($ramGB * 1024))
         }
         
-        Write-LogMessage "System RAM: $ramGB GB" -Level Info
-        Write-LogMessage "Recommended Initial Size: $initialMB MB ($([math]::Round($initialMB/1024, 2)) GB)" -Level Info
-        Write-LogMessage "Recommended Maximum Size: $maximumMB MB ($([math]::Round($maximumMB/1024, 2)) GB)" -Level Info
+        Write-Log "System RAM: $ramGB GB" -Level INFO
+        Write-Log "Recommended Initial Size: $initialMB MB ($([math]::Round($initialMB/1024, 2)) GB)" -Level INFO
+        Write-Log "Recommended Maximum Size: $maximumMB MB ($([math]::Round($maximumMB/1024, 2)) GB)" -Level INFO
         
         return @{
             InitialSize = $initialMB
@@ -156,7 +145,7 @@ function Get-RecommendedPageFileSize {
         }
     }
     catch {
-        Write-LogMessage "Error calculating recommended size: $($_.Exception.Message)" -Level Error
+        Write-Log "Error calculating recommended size: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
@@ -166,7 +155,7 @@ function Get-RecommendedPageFileSize {
 #region Page File Configuration
 
 function Get-CurrentPageFileConfiguration {
-    Write-LogMessage "Retrieving current page file configuration..." -Level Info
+    Write-Log "Retrieving current page file configuration..." -Level INFO
     
     try {
         $pageFiles = Get-CimInstance -ClassName Win32_PageFileSetting
@@ -174,86 +163,86 @@ function Get-CurrentPageFileConfiguration {
         
         if ($pageFiles) {
             foreach ($pf in $pageFiles) {
-                Write-LogMessage "  Current: $($pf.Name)" -Level Info
-                Write-LogMessage "    Initial Size: $($pf.InitialSize) MB" -Level Info
-                Write-LogMessage "    Maximum Size: $($pf.MaximumSize) MB" -Level Info
+                Write-Log "  Current: $($pf.Name)" -Level INFO
+                Write-Log "    Initial Size: $($pf.InitialSize) MB" -Level INFO
+                Write-Log "    Maximum Size: $($pf.MaximumSize) MB" -Level INFO
             }
         }
         else {
-            Write-LogMessage "  No page files configured (system-managed or none)" -Level Info
+            Write-Log "  No page files configured (system-managed or none)" -Level INFO
         }
         
         if ($pageFileUsage) {
             foreach ($pfu in $pageFileUsage) {
-                Write-LogMessage "  Usage: $($pfu.Name)" -Level Info
-                Write-LogMessage "    Allocated: $($pfu.AllocatedBaseSize) MB" -Level Info
-                Write-LogMessage "    Current: $($pfu.CurrentUsage) MB" -Level Info
-                Write-LogMessage "    Peak: $($pfu.PeakUsage) MB" -Level Info
+                Write-Log "  Usage: $($pfu.Name)" -Level INFO
+                Write-Log "    Allocated: $($pfu.AllocatedBaseSize) MB" -Level INFO
+                Write-Log "    Current: $($pfu.CurrentUsage) MB" -Level INFO
+                Write-Log "    Peak: $($pfu.PeakUsage) MB" -Level INFO
             }
         }
         
         return $pageFiles
     }
     catch {
-        Write-LogMessage "Error retrieving page file info: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error retrieving page file info: $($_.Exception.Message)" -Level WARN
         return $null
     }
 }
 
 function Remove-ExistingPageFiles {
-    Write-LogMessage "Removing existing page files..." -Level Info
+    Write-Log "Removing existing page files..." -Level INFO
     
     try {
         $pageFiles = Get-CimInstance -ClassName Win32_PageFileSetting
         
         if ($pageFiles) {
             foreach ($pf in $pageFiles) {
-                Write-LogMessage "  Removing: $($pf.Name)" -Level Info
+                Write-Log "  Removing: $($pf.Name)" -Level INFO
                 Remove-CimInstance -InputObject $pf
             }
             
-            Write-LogMessage "Existing page files removed" -Level Success
+            Write-Log "Existing page files removed" -Level INFO
             $script:ConfigurationsApplied++
             return $true
         }
         else {
-            Write-LogMessage "No existing page files to remove" -Level Info
+            Write-Log "No existing page files to remove" -Level INFO
             return $true
         }
     }
     catch {
-        Write-LogMessage "Error removing page files: $($_.Exception.Message)" -Level Error
+        Write-Log "Error removing page files: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Disable-AutomaticPageFile {
-    Write-LogMessage "Disabling automatic page file management..." -Level Info
+    Write-Log "Disabling automatic page file management..." -Level INFO
     
     try {
         $computerSystem = Get-CimInstance -ClassName Win32_ComputerSystem
         
         if ($computerSystem.AutomaticManagedPagefile) {
             $computerSystem | Set-CimInstance -Property @{AutomaticManagedPagefile = $false}
-            Write-LogMessage "Automatic page file management disabled" -Level Success
+            Write-Log "Automatic page file management disabled" -Level INFO
             $script:ConfigurationsApplied++
         }
         else {
-            Write-LogMessage "Automatic page file management already disabled" -Level Info
+            Write-Log "Automatic page file management already disabled" -Level INFO
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "Error disabling automatic page file: $($_.Exception.Message)" -Level Error
+        Write-Log "Error disabling automatic page file: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Enable-AutomaticPageFile {
-    Write-LogMessage "Enabling automatic page file management..." -Level Info
+    Write-Log "Enabling automatic page file management..." -Level INFO
     
     try {
         # Remove existing page files first
@@ -263,12 +252,12 @@ function Enable-AutomaticPageFile {
         $computerSystem = Get-CimInstance -ClassName Win32_ComputerSystem
         $computerSystem | Set-CimInstance -Property @{AutomaticManagedPagefile = $true}
         
-        Write-LogMessage "Automatic page file management enabled" -Level Success
+        Write-Log "Automatic page file management enabled" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error enabling automatic page file: $($_.Exception.Message)" -Level Error
+        Write-Log "Error enabling automatic page file: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
@@ -281,12 +270,12 @@ function New-CustomPageFile {
         [int]$Maximum
     )
     
-    Write-LogMessage "Creating custom page file..." -Level Info
+    Write-Log "Creating custom page file..." -Level INFO
     
     try {
         # Validate drive
         if (-not (Test-Path $DriveLetter)) {
-            Write-LogMessage "Drive $DriveLetter does not exist" -Level Error
+            Write-Log "Drive $DriveLetter does not exist" -Level ERROR
             $script:ConfigurationsFailed++
             return $false
         }
@@ -296,12 +285,12 @@ function New-CustomPageFile {
         $freeSpaceGB = [math]::Round($driveInfo.Free / 1GB, 2)
         $requiredGB = [math]::Round($Maximum / 1024, 2)
         
-        Write-LogMessage "Drive: $DriveLetter" -Level Info
-        Write-LogMessage "  Free Space: $freeSpaceGB GB" -Level Info
-        Write-LogMessage "  Required: $requiredGB GB" -Level Info
+        Write-Log "Drive: $DriveLetter" -Level INFO
+        Write-Log "  Free Space: $freeSpaceGB GB" -Level INFO
+        Write-Log "  Required: $requiredGB GB" -Level INFO
         
         if ($freeSpaceGB -lt $requiredGB) {
-            Write-LogMessage "Insufficient free space on $DriveLetter" -Level Warning
+            Write-Log "Insufficient free space on $DriveLetter" -Level WARN
         }
         
         # Disable automatic management
@@ -319,15 +308,15 @@ function New-CustomPageFile {
             MaximumSize = $Maximum
         }
         
-        Write-LogMessage "Page file created: $pageFileName" -Level Success
-        Write-LogMessage "  Initial Size: $Initial MB ($([math]::Round($Initial/1024, 2)) GB)" -Level Info
-        Write-LogMessage "  Maximum Size: $Maximum MB ($([math]::Round($Maximum/1024, 2)) GB)" -Level Info
+        Write-Log "Page file created: $pageFileName" -Level INFO
+        Write-Log "  Initial Size: $Initial MB ($([math]::Round($Initial/1024, 2)) GB)" -Level INFO
+        Write-Log "  Maximum Size: $Maximum MB ($([math]::Round($Maximum/1024, 2)) GB)" -Level INFO
         
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error creating page file: $($_.Exception.Message)" -Level Error
+        Write-Log "Error creating page file: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
@@ -338,7 +327,7 @@ function New-CustomPageFile {
 #region Verification
 
 function Test-PageFileConfiguration {
-    Write-LogMessage "Verifying page file configuration..." -Level Info
+    Write-Log "Verifying page file configuration..." -Level INFO
     
     try {
         # Wait a moment for changes to take effect
@@ -346,35 +335,35 @@ function Test-PageFileConfiguration {
         
         # Check automatic management status
         $computerSystem = Get-CimInstance -ClassName Win32_ComputerSystem
-        Write-LogMessage "  Automatic Management: $($computerSystem.AutomaticManagedPagefile)" -Level Info
+        Write-Log "  Automatic Management: $($computerSystem.AutomaticManagedPagefile)" -Level INFO
         
         # Check configured page files
         $pageFiles = Get-CimInstance -ClassName Win32_PageFileSetting
         if ($pageFiles) {
-            Write-LogMessage "  Configured Page Files: $($pageFiles.Count)" -Level Info
+            Write-Log "  Configured Page Files: $($pageFiles.Count)" -Level INFO
             foreach ($pf in $pageFiles) {
-                Write-LogMessage "    $($pf.Name): $($pf.InitialSize)-$($pf.MaximumSize) MB" -Level Info
+                Write-Log "    $($pf.Name): $($pf.InitialSize)-$($pf.MaximumSize) MB" -Level INFO
             }
         }
         else {
             if ($computerSystem.AutomaticManagedPagefile) {
-                Write-LogMessage "  System-managed page file (no manual configuration)" -Level Info
+                Write-Log "  System-managed page file (no manual configuration)" -Level INFO
             }
             else {
-                Write-LogMessage "  WARNING: No page files configured!" -Level Warning
+                Write-Log "  WARNING: No page files configured!" -Level WARN
             }
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "Error verifying configuration: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error verifying configuration: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
 
 function Get-PageFileReport {
-    Write-LogMessage "Generating page file configuration report..." -Level Info
+    Write-Log "Generating page file configuration report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "pagefile-config-$timestamp.txt"
@@ -443,11 +432,11 @@ function Get-PageFileReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Page file report saved to: $reportFile" -Level Success
+        Write-Log "Page file report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -457,37 +446,41 @@ function Get-PageFileReport {
 #region Main Execution
 
 function Main {
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
+    }
+
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Page File Configuration" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Configure_Page_File starting ====="
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
     # Display current configuration
     Get-CurrentPageFileConfiguration | Out-Null
-    Write-LogMessage "" -Level Info
+    Write-Log "" -Level INFO
     
     # Process based on parameter set
     if ($RemoveAllPageFiles) {
-        Write-LogMessage "Removing all page files..." -Level Warning
+        Write-Log "Removing all page files..." -Level WARN
         $success = Remove-ExistingPageFiles
     }
     elseif ($SystemManaged) {
-        Write-LogMessage "Configuring system-managed page file..." -Level Info
+        Write-Log "Configuring system-managed page file..." -Level INFO
         $success = Enable-AutomaticPageFile
     }
     elseif ($RecommendedSize) {
-        Write-LogMessage "Using recommended page file size..." -Level Info
+        Write-Log "Using recommended page file size..." -Level INFO
         $recommended = Get-RecommendedPageFileSize
         
         if ($recommended) {
@@ -496,17 +489,17 @@ function Main {
                 -Maximum $recommended.MaximumSize
         }
         else {
-            Write-LogMessage "Could not calculate recommended size" -Level Error
+            Write-Log "Could not calculate recommended size" -Level ERROR
             $success = $false
         }
     }
     else {
         # Custom configuration
         if ($InitialSize -gt 0 -and $MaximumSize -gt 0) {
-            Write-LogMessage "Configuring custom page file..." -Level Info
+            Write-Log "Configuring custom page file..." -Level INFO
             
             if ($InitialSize -gt $MaximumSize) {
-                Write-LogMessage "ERROR: Initial size cannot be greater than maximum size" -Level Error
+                Write-Log "ERROR: Initial size cannot be greater than maximum size" -Level ERROR
                 exit 1
             }
             
@@ -515,14 +508,14 @@ function Main {
                 -Maximum $MaximumSize
         }
         else {
-            Write-LogMessage "No configuration specified, displaying current settings only" -Level Info
+            Write-Log "No configuration specified, displaying current settings only" -Level INFO
             $success = $true
         }
     }
     
     # Verify configuration
     if ($success) {
-        Write-LogMessage "" -Level Info
+        Write-Log "" -Level INFO
         Test-PageFileConfiguration | Out-Null
     }
     
@@ -530,26 +523,15 @@ function Main {
     Get-PageFileReport | Out-Null
     
     # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configuration Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configurations Applied: $script:ConfigurationsApplied" -Level Info
-    Write-LogMessage "Configuration Failures: $script:ConfigurationsFailed" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    Write-LogMessage "" -Level Info
-    
+    $duration = ((Get-Date) - $scriptStartTime).TotalSeconds
+
     if ($script:ConfigurationsFailed -eq 0) {
-        Write-LogMessage "Page file configuration completed successfully!" -Level Success
-        Write-LogMessage "NOTE: A system restart is required for changes to take effect" -Level Warning
+        Write-Log "NOTE: A system restart is required for changes to take effect" -Level WARN
+        Write-Log "===== Configure_Page_File complete in $([int]$duration)s; applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) ====="
         exit 0
     }
     else {
-        Write-LogMessage "Configuration completed with $script:ConfigurationsFailed errors" -Level Warning
+        Write-Log "===== Configure_Page_File complete in $([int]$duration)s; applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) =====" -Level WARN
         exit 1
     }
 }
@@ -559,9 +541,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

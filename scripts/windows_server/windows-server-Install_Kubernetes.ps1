@@ -75,27 +75,34 @@ if (-not (Test-Path $LogPath)) {
 
 Start-Transcript -Path $LogFile -Append
 
+$script:Component = 'Kubernetes'
+function Write-Log {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
+}
+
 # Error handling
 trap {
-    Write-Error "Error: $_"
-    Write-Error $_.ScriptStackTrace
+    Write-Log "Error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     Stop-Transcript
     exit 1
 }
 
-Write-Host "=== Kubernetes Installation for Windows Server ===" -ForegroundColor Cyan
-Write-Host "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Gray
-Write-Host "Version: $KubernetesVersion" -ForegroundColor Gray
-Write-Host "Runtime: $ContainerRuntime" -ForegroundColor Gray
-Write-Host "CNI Plugin: $CNIPlugin" -ForegroundColor Gray
-Write-Host ""
+$startTime = Get-Date
+Write-Log "===== Install_Kubernetes starting (Version=$KubernetesVersion, Runtime=$ContainerRuntime, CNIPlugin=$CNIPlugin) ====="
 
 # Check prerequisites
-Write-Host "Checking prerequisites..." -ForegroundColor Yellow
+Write-Log "Checking prerequisites..."
 
 $OSInfo = Get-CimInstance Win32_OperatingSystem
 if ($OSInfo.ProductType -ne 3) {
-    Write-Warning "This script is designed for Windows Server (detected client OS)"
+    Write-Log "This script is designed for Windows Server (detected client OS)" -Level WARN
 }
 
 if ([int]$OSInfo.BuildNumber -lt 17763) {
@@ -105,26 +112,26 @@ if ([int]$OSInfo.BuildNumber -lt 17763) {
 # Check Containers feature
 $ContainersFeature = Get-WindowsFeature -Name Containers -ErrorAction SilentlyContinue
 if (-not $ContainersFeature -or $ContainersFeature.InstallState -ne 'Installed') {
-    Write-Host "Installing Containers feature..." -ForegroundColor Yellow
+    Write-Log "Installing Containers feature..."
     Install-WindowsFeature -Name Containers -Restart:$false
     $script:ConfiguredServices++
 }
 
 # Create installation directory
 if (-not (Test-Path $InstallPath)) {
-    Write-Host "Creating installation directory: $InstallPath" -ForegroundColor Yellow
+    Write-Log "Creating installation directory: $InstallPath"
     New-Item -Path $InstallPath -ItemType Directory -Force | Out-Null
 }
 
 # Determine Kubernetes version
 if ($KubernetesVersion -eq "latest") {
-    Write-Host "Detecting latest stable Kubernetes version..." -ForegroundColor Yellow
+    Write-Log "Detecting latest stable Kubernetes version..."
     try {
         $VersionResponse = Invoke-RestMethod -Uri "https://dl.k8s.io/release/stable.txt" -UseBasicParsing
         $KubernetesVersion = $VersionResponse.Trim()
-        Write-Host "Latest version: $KubernetesVersion" -ForegroundColor Green
+        Write-Log "Latest version: $KubernetesVersion"
     } catch {
-        Write-Warning "Could not detect latest version, using v1.28.0"
+        Write-Log "Could not detect latest version, using v1.28.0" -Level WARN
         $KubernetesVersion = "v1.28.0"
     }
 }
@@ -134,40 +141,40 @@ if (-not $KubernetesVersion.StartsWith("v")) {
 }
 
 # Download Kubernetes binaries
-Write-Host "`nDownloading Kubernetes binaries..." -ForegroundColor Yellow
+Write-Log "Downloading Kubernetes binaries..."
 $BaseUrl = "https://dl.k8s.io/release/$KubernetesVersion/bin/windows/amd64"
 $Binaries = @("kubelet.exe", "kubeadm.exe", "kubectl.exe")
 
 foreach ($Binary in $Binaries) {
     $DownloadUrl = "$BaseUrl/$Binary"
     $DestinationPath = Join-Path $InstallPath $Binary
-    
+
     if (Test-Path $DestinationPath) {
-        Write-Host "  [EXISTS] $Binary" -ForegroundColor Gray
+        Write-Log "[EXISTS] $Binary"
     } else {
-        Write-Host "  Downloading $Binary..." -ForegroundColor Cyan
+        Write-Log "Downloading $Binary..."
         try {
             Invoke-WebRequest -Uri $DownloadUrl -OutFile $DestinationPath -UseBasicParsing
             $script:DownloadedFiles++
-            Write-Host "  [OK] $Binary" -ForegroundColor Green
+            Write-Log "[OK] $Binary"
         } catch {
-            Write-Error "Failed to download $Binary : $_"
+            Write-Log "Failed to download $Binary : $_" -Level ERROR
         }
     }
 }
 
 # Add to PATH
-Write-Host "`nConfiguring system PATH..." -ForegroundColor Yellow
+Write-Log "Configuring system PATH..."
 $CurrentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
 if ($CurrentPath -notlike "*$InstallPath*") {
     [Environment]::SetEnvironmentVariable("Path", "$CurrentPath;$InstallPath", "Machine")
     $env:Path = "$env:Path;$InstallPath"
-    Write-Host "Added $InstallPath to system PATH" -ForegroundColor Green
+    Write-Log "Added $InstallPath to system PATH"
     $script:NetworkChanges++
 }
 
 # Configure container runtime
-Write-Host "`nConfiguring container runtime: $ContainerRuntime" -ForegroundColor Yellow
+Write-Log "Configuring container runtime: $ContainerRuntime"
 
 if ($ContainerRuntime -eq "containerd") {
     # Download and configure containerd
@@ -175,7 +182,7 @@ if ($ContainerRuntime -eq "containerd") {
     $ContainerdUrl = "https://github.com/containerd/containerd/releases/download/v$ContainerdVersion/containerd-$ContainerdVersion-windows-amd64.tar.gz"
     $ContainerdArchive = Join-Path $env:TEMP "containerd.tar.gz"
     
-    Write-Host "  Downloading containerd v$ContainerdVersion..." -ForegroundColor Cyan
+    Write-Log "Downloading containerd v$ContainerdVersion..."
     Invoke-WebRequest -Uri $ContainerdUrl -OutFile $ContainerdArchive -UseBasicParsing
     
     # Extract containerd
@@ -196,20 +203,20 @@ if ($ContainerRuntime -eq "containerd") {
     Start-Service containerd
     Set-Service containerd -StartupType Automatic
     $script:ConfiguredServices++
-    Write-Host "  [OK] containerd configured and started" -ForegroundColor Green
-    
+    Write-Log "[OK] containerd configured and started"
+
 } elseif ($ContainerRuntime -eq "docker") {
     # Verify Docker is installed
     if (-not (Get-Service docker -ErrorAction SilentlyContinue)) {
-        Write-Warning "Docker is not installed. Install Docker Enterprise first."
-        Write-Host "Run: .\Install-DockerEnterprise.ps1" -ForegroundColor Yellow
+        Write-Log "Docker is not installed. Install Docker Enterprise first." -Level WARN
+        Write-Log "Run: .\Install-DockerEnterprise.ps1"
     } else {
-        Write-Host "  [OK] Docker runtime detected" -ForegroundColor Green
+        Write-Log "[OK] Docker runtime detected"
     }
 }
 
 # Download CNI plugins
-Write-Host "`nInstalling CNI plugins..." -ForegroundColor Yellow
+Write-Log "Installing CNI plugins..."
 $CNIPath = Join-Path $InstallPath "cni"
 if (-not (Test-Path $CNIPath)) {
     New-Item -Path $CNIPath -ItemType Directory -Force | Out-Null
@@ -219,15 +226,15 @@ $CNIVersion = "v1.4.0"
 $CNIUrl = "https://github.com/microsoft/windows-container-networking/releases/download/$CNIVersion/windows-container-networking-cni-amd64-$CNIVersion.zip"
 $CNIArchive = Join-Path $env:TEMP "cni-plugins.zip"
 
-Write-Host "  Downloading CNI plugins $CNIVersion..." -ForegroundColor Cyan
+Write-Log "Downloading CNI plugins $CNIVersion..."
 Invoke-WebRequest -Uri $CNIUrl -OutFile $CNIArchive -UseBasicParsing
 Expand-Archive -Path $CNIArchive -DestinationPath $CNIPath -Force
 $script:DownloadedFiles++
-Write-Host "  [OK] CNI plugins installed" -ForegroundColor Green
+Write-Log "[OK] CNI plugins installed"
 
 # Configure Windows networking
 if (-not $SkipNetworkConfiguration) {
-    Write-Host "`nConfiguring Windows networking for Kubernetes..." -ForegroundColor Yellow
+    Write-Log "Configuring Windows networking for Kubernetes..."
     
     # Enable IP forwarding
     Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" `
@@ -235,14 +242,14 @@ if (-not $SkipNetworkConfiguration) {
     $script:NetworkChanges++
     
     # Disable Windows Firewall for testing (should be configured properly in production)
-    Write-Host "  Configuring firewall rules..." -ForegroundColor Cyan
+    Write-Log "Configuring firewall rules..."
     New-NetFirewallRule -Name "Kubelet" -DisplayName "Kubelet" `
         -Protocol TCP -LocalPort 10250 -Action Allow -Enabled True -ErrorAction SilentlyContinue
     New-NetFirewallRule -Name "Kubernetes-API" -DisplayName "Kubernetes API" `
         -Protocol TCP -LocalPort 6443 -Action Allow -Enabled True -ErrorAction SilentlyContinue
     $script:NetworkChanges++
-    
-    Write-Host "  [OK] Network configuration complete" -ForegroundColor Green
+
+    Write-Log "[OK] Network configuration complete"
 }
 
 # Create kubelet configuration directory
@@ -252,7 +259,7 @@ if (-not (Test-Path $KubeletConfigPath)) {
 }
 
 # Create kubelet startup script
-Write-Host "`nCreating kubelet service configuration..." -ForegroundColor Yellow
+Write-Log "Creating kubelet service configuration..."
 $KubeletScript = @"
 `$ErrorActionPreference = 'Stop'
 
@@ -278,14 +285,13 @@ $KubeletScriptPath = Join-Path $InstallPath "start-kubelet.ps1"
 $KubeletScript | Out-File -FilePath $KubeletScriptPath -Encoding utf8
 
 # Create kubelet service using NSSM (if available) or manual setup instructions
-Write-Host "`nKubelet service setup:" -ForegroundColor Yellow
-Write-Host "  To complete kubelet setup, you need to:" -ForegroundColor Cyan
-Write-Host "  1. Join this node to a Kubernetes cluster using kubeadm" -ForegroundColor Gray
-Write-Host "  2. Configure kubelet service to start automatically" -ForegroundColor Gray
-Write-Host "  3. Apply the CNI network plugin configuration" -ForegroundColor Gray
-Write-Host ""
-Write-Host "  Example commands:" -ForegroundColor Gray
-Write-Host "    kubeadm join <control-plane>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>" -ForegroundColor DarkGray
+Write-Log "Kubelet service setup:"
+Write-Log "To complete kubelet setup, you need to:"
+Write-Log "1. Join this node to a Kubernetes cluster using kubeadm"
+Write-Log "2. Configure kubelet service to start automatically"
+Write-Log "3. Apply the CNI network plugin configuration"
+Write-Log "Example commands:"
+Write-Log "  kubeadm join <control-plane>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>"
 
 # Create helper scripts
 $JoinScriptTemplate = @"
@@ -307,7 +313,7 @@ $JoinScriptPath = Join-Path $InstallPath "join-cluster-template.ps1"
 $JoinScriptTemplate | Out-File -FilePath $JoinScriptPath -Encoding utf8
 
 # Verify installation
-Write-Host "`nVerifying installation..." -ForegroundColor Yellow
+Write-Log "Verifying installation..."
 $VerificationResults = @()
 
 foreach ($Binary in $Binaries) {
@@ -319,40 +325,26 @@ foreach ($Binary in $Binaries) {
             Status = "Installed"
             Version = $Version
         }
-        Write-Host "  [OK] $Binary - $Version" -ForegroundColor Green
+        Write-Log "[OK] $Binary - $Version"
     } else {
         $VerificationResults += [PSCustomObject]@{
             Component = $Binary.Replace('.exe', '')
             Status = "Missing"
             Version = "N/A"
         }
-        Write-Host "  [FAIL] $Binary not found" -ForegroundColor Red
+        Write-Log "[FAIL] $Binary not found" -Level ERROR
     }
 }
 
 # Summary report
-Write-Host "`n=== Kubernetes Installation Summary ===" -ForegroundColor Cyan
-Write-Host "Installation Path: $InstallPath" -ForegroundColor Gray
-Write-Host "Kubernetes Version: $KubernetesVersion" -ForegroundColor Gray
-Write-Host "Container Runtime: $ContainerRuntime" -ForegroundColor Gray
-Write-Host "CNI Plugin: $CNIPlugin (to be configured)" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Statistics:" -ForegroundColor Yellow
-Write-Host "  Downloaded Files: $script:DownloadedFiles" -ForegroundColor Gray
-Write-Host "  Configured Services: $script:ConfiguredServices" -ForegroundColor Gray
-Write-Host "  Network Changes: $script:NetworkChanges" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Components:" -ForegroundColor Yellow
+Write-Log "Installation Path: $InstallPath"
+Write-Log "Kubernetes Version: $KubernetesVersion"
+Write-Log "Container Runtime: $ContainerRuntime"
+Write-Log "CNI Plugin: $CNIPlugin (to be configured)"
+Write-Log "Statistics: DownloadedFiles=$script:DownloadedFiles ConfiguredServices=$script:ConfiguredServices NetworkChanges=$script:NetworkChanges"
+Write-Log "Components:"
 $VerificationResults | Format-Table -AutoSize
 
-Write-Host "`nNext Steps:" -ForegroundColor Yellow
-Write-Host "1. Obtain join command from Kubernetes control plane" -ForegroundColor Gray
-Write-Host "2. Update and run: $JoinScriptPath" -ForegroundColor Gray
-Write-Host "3. Configure CNI plugin on control plane" -ForegroundColor Gray
-Write-Host "4. Verify node joins cluster: kubectl get nodes" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Documentation: https://kubernetes.io/docs/setup/production-environment/windows/" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Installation completed successfully!" -ForegroundColor Green
-
+Write-Log "===== Install_Kubernetes complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 Stop-Transcript
+exit 0

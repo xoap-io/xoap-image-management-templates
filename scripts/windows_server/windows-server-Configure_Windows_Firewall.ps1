@@ -41,53 +41,45 @@ $script:RulesConfigured = 0
 $script:RulesEnabled = 0
 $script:RulesDisabled = 0
 
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0, Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [Firewall] $Message"
-    Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
+    Write-Host "[$timestamp] [$Level] [Firewall] $Message"
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
     exit 1
 }
 
 try {
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
     }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
+
     $startTime = Get-Date
-    
-    Write-Log "==================================================="
-    Write-Log "Windows Firewall Configuration Script"
-    Write-Log "==================================================="
-    Write-Log "Enable RDP: $EnableRDP"
-    Write-Log "Enable WinRM: $EnableWinRM"
-    Write-Log "Enable SMB: $EnableSMB"
-    Write-Log "Enable ICMP: $EnableICMP"
-    Write-Log ""
-    
+
+    Write-Log "===== Configure_Windows_Firewall starting (EnableRDP=$EnableRDP, EnableWinRM=$EnableWinRM, EnableSMB=$EnableSMB, EnableICMP=$EnableICMP) ====="
+
     # Enable Windows Firewall on all profiles
     Write-Log "Enabling Windows Firewall on all profiles..."
     Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
-    Write-Log "✓ Windows Firewall enabled on all profiles"
+    Write-Log "[OK] Windows Firewall enabled on all profiles"
     $script:RulesConfigured++
     
     # Configure default actions
@@ -95,7 +87,7 @@ try {
     Set-NetFirewallProfile -Profile Domain -DefaultInboundAction Block -DefaultOutboundAction Allow
     Set-NetFirewallProfile -Profile Public -DefaultInboundAction Block -DefaultOutboundAction Allow
     Set-NetFirewallProfile -Profile Private -DefaultInboundAction Block -DefaultOutboundAction Allow
-    Write-Log "✓ Default actions configured (Block Inbound, Allow Outbound)"
+    Write-Log "[OK] Default actions configured (Block Inbound, Allow Outbound)"
     $script:RulesConfigured++
     
     # Enable firewall logging
@@ -111,7 +103,7 @@ try {
         -LogBlocked True `
         -LogAllowed False
     
-    Write-Log "✓ Firewall logging enabled: $logPath\pfirewall.log"
+    Write-Log "[OK] Firewall logging enabled: $logPath\pfirewall.log"
     $script:RulesConfigured++
     
     # Disable all unnecessary predefined rules
@@ -140,7 +132,7 @@ try {
     if ($EnableRDP) {
         Write-Log "Enabling Remote Desktop rules..."
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Write-Log "✓ Remote Desktop firewall rules enabled"
+        Write-Log "[OK] Remote Desktop firewall rules enabled"
         $script:RulesEnabled++
     }
     
@@ -148,7 +140,7 @@ try {
     if ($EnableWinRM) {
         Write-Log "Enabling Windows Remote Management rules..."
         Enable-NetFirewallRule -DisplayGroup "Windows Remote Management"
-        Write-Log "✓ WinRM firewall rules enabled"
+        Write-Log "[OK] WinRM firewall rules enabled"
         $script:RulesEnabled++
     }
     
@@ -156,7 +148,7 @@ try {
     if ($EnableSMB) {
         Write-Log "Enabling File and Printer Sharing rules..."
         Enable-NetFirewallRule -DisplayGroup "File and Printer Sharing"
-        Write-Log "✓ SMB firewall rules enabled"
+        Write-Log "[OK] SMB firewall rules enabled"
         $script:RulesEnabled++
     }
     
@@ -165,7 +157,7 @@ try {
         Write-Log "Enabling ICMP (ping) rules..."
         Enable-NetFirewallRule -DisplayName "File and Printer Sharing (Echo Request - ICMPv4-In)"
         Enable-NetFirewallRule -DisplayName "File and Printer Sharing (Echo Request - ICMPv6-In)"
-        Write-Log "✓ ICMP firewall rules enabled"
+        Write-Log "[OK] ICMP firewall rules enabled"
         $script:RulesEnabled++
     }
     
@@ -243,10 +235,10 @@ try {
     $firewallService = Get-Service -Name 'mpssvc'
     if ($firewallService.Status -ne 'Running') {
         Start-Service -Name 'mpssvc'
-        Write-Log "✓ Windows Firewall service started"
+        Write-Log "[OK] Windows Firewall service started"
     }
     Set-Service -Name 'mpssvc' -StartupType Automatic
-    Write-Log "✓ Windows Firewall service set to automatic"
+    Write-Log "[OK] Windows Firewall service set to automatic"
     
     # Display current profile status
     Write-Log ""
@@ -260,25 +252,17 @@ try {
     }
     
     # Summary
-    $endTime = Get-Date
-    $duration = ($endTime - $startTime).TotalSeconds
-    
-    Write-Log ""
-    Write-Log "==================================================="
-    Write-Log "Windows Firewall Configuration Summary"
-    Write-Log "==================================================="
-    Write-Log "Rules configured: $script:RulesConfigured"
-    Write-Log "Rules enabled: $script:RulesEnabled"
-    Write-Log "Rules disabled: $script:RulesDisabled"
+    $duration = ((Get-Date) - $startTime).TotalSeconds
+
     Write-Log "Firewall profiles: All enabled"
     Write-Log "Logging: Enabled ($logPath\pfirewall.log)"
-    Write-Log "Execution time: $([math]::Round($duration, 2))s"
-    Write-Log "==================================================="
-    Write-Log "Windows Firewall configuration completed!"
-    
+    Write-Log "===== Configure_Windows_Firewall complete in $([int]$duration)s; configured=$($script:RulesConfigured) enabled=$($script:RulesEnabled) disabled=$($script:RulesDisabled) ====="
+
 } catch {
-    Write-Log "Script execution failed: $_" -Level Error
+    Write-Log "Script execution failed: $_" -Level ERROR
     exit 1
 } finally {
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
 }
+
+exit 0

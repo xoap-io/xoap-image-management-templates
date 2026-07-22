@@ -1,0 +1,153 @@
+# RHEL 9 hardened cloud base image (alpaka v6 taxonomy) — AZURE flavor.
+#
+# Builds a hardened Red Hat Enterprise Linux 9 golden image in Azure: the azure-arm builder
+# spins a temporary VM from the RHEL marketplace image, updates it, installs common packages,
+# configures chronyd, hardens SSH, hardens firewalld, applies the Azure guest configuration,
+# runs the optimization pass, validates with a staged shell script (a non-zero exit aborts
+# the build), cleans up (dnf), then captures a managed image and publishes a Compute Gallery
+# image version.
+#
+# Script paths below are resolved by alpaka INSIDE this template directory. Vendor the
+# referenced scripts into ./scripts first:  pwsh examples/sync-demo-scripts.ps1 -Set rhel-cloud-base
+#
+# CLOUD SWAP: step "cloud-configure" targets AZURE. For AWS or GCP, change the target
+# platform type (amazon-ebs / googlecompute) and swap that action for
+# scripts/rhel-aws_configure.sh or scripts/rhel-gcp_configure.sh. See ../README.md.
+#
+# NO SYSPREP: Linux images generalize via cloud-init / waagent -deprovision, not Sysprep
+# (see ../README.md).
+version: "2.0"
+description: "RHEL 9 azure-arm — hardened cloud base: managed image + gallery version"
+
+variables:
+  image_name: "rhel-cloud-base"
+  location: "westeurope"
+  vm_size: "Standard_D2s_v3"
+  images_rg: "alpaka-images-rg"            # existing resource group for the managed image + gallery
+  gallery_name: "alpakaImageGallery"
+  image_version: "1.0.0"
+  ssh_username: "azureuser"
+  ssh_password: "Alpaka!Build2026"
+
+sensitive_variables:
+  - ssh_password
+
+target_platforms:
+  - name: "{{ image_name }}"
+    type: "azure-arm"
+    # --- auth (service principal; resolved from the environment / XOAP Connection) ---
+    client_id: "{{env `AZURE_CLIENT_ID`}}"
+    client_secret: "{{env `AZURE_CLIENT_SECRET`}}"
+    tenant_id: "{{env `AZURE_TENANT_ID`}}"
+    subscription_id: "{{env `AZURE_SUBSCRIPTION_ID`}}"
+    location: "{{ location }}"
+
+    # --- source: RHEL 9 marketplace image (Gen2) ---
+    image_publisher: "RedHat"
+    image_offer: "RHEL"
+    image_sku: "9-lvm-gen2"
+    image_version: "latest"
+
+    # --- VM ---
+    vm_size: "{{ vm_size }}"
+    os_type: "Linux"
+    os_disk_size_gb: "64"
+    disk_caching_type: "ReadWrite"
+
+    # --- managed image output into an existing RG ---
+    managed_image_name: "{{ image_name }}-golden"
+    managed_image_resource_group_name: "{{ images_rg }}"
+    managed_image_storage_account_type: "Standard_LRS"
+
+    # --- Compute Gallery: publish a new version replicated in the build region ---
+    target_gallery_name: "{{ gallery_name }}"
+    target_resource_group: "{{ images_rg }}"
+    target_image_name: "rhel-9-base"
+    target_image_version: "{{ image_version }}"
+    replication_regions: 1
+    target_regions:
+      - name: "westeurope"
+        replica_count: 1
+    exclude_from_latest: false
+
+    azure_tags:
+      Environment: "test"
+      OS: "RHEL 9"
+      Role: "cloud-base"
+      ManagedBy: "Alpaka"
+      Flow: "azure-arm-managed-gallery"
+
+connection:
+  type: "ssh"
+  username: "{{ ssh_username }}"
+  password: "{{ ssh_password }}"
+  timeout: "15m"
+
+actions:
+  # 1) Update packages first.
+  - type: shell
+    name: update-system
+    timeout: "60m"
+    script: "scripts/rhel-update_system.sh"
+
+  # 2) Baseline packages/tooling.
+  - type: shell
+    name: install-common-packages
+    timeout: "30m"
+    script: "scripts/rhel-install_common_packages.sh"
+
+  # 3) Time synchronization (chronyd).
+  - type: shell
+    name: configure-chronyd
+    timeout: "15m"
+    script: "scripts/rhel-configure_chronyd.sh"
+
+  # 4) SSH daemon hardening.
+  - type: shell
+    name: ssh-hardening
+    timeout: "15m"
+    script: "scripts/rhel-ssh_hardening.sh"
+
+  # 5) Host firewall hardening (firewalld).
+  - type: shell
+    name: firewalld-hardening
+    timeout: "15m"
+    script: "scripts/rhel-firewalld_hardening.sh"
+
+  # 6) Cloud guest configuration (AZURE). AWS: scripts/rhel-aws_configure.sh  GCP: scripts/rhel-gcp_configure.sh
+  - type: shell
+    name: cloud-configure
+    timeout: "15m"
+    script: "scripts/rhel-azure_configure.sh"
+
+  # 7) Optimization pass.
+  - type: shell
+    name: optimize
+    timeout: "15m"
+    script: "scripts/rhel-optimize.sh"
+
+  # 8) Stage + run shell validation; a non-zero exit aborts the build (image never captured).
+  - type: file
+    name: stage-tests
+    source: "../tests/rhel-validate.sh"
+    destination: "/tmp/rhel-validate.sh"
+    direction: "upload"
+
+  - type: shell
+    name: validate
+    timeout: "10m"
+    inline:
+      - "chmod +x /tmp/rhel-validate.sh"
+      - "bash /tmp/rhel-validate.sh"
+
+  # 9) Reclaim space / remove build artifacts (dnf).
+  - type: shell
+    name: cleanup
+    timeout: "15m"
+    script: "scripts/rhel-cleanup_dnf.sh"
+
+post_build:
+  - name: "manifest"
+    type: "manifest"
+    output: "rhel-cloud-base-azure-manifest.json"
+    strip_path: true

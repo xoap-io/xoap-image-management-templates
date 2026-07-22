@@ -64,7 +64,13 @@ $ProgressPreference = 'SilentlyContinue'
 $LogDir = 'C:\xoap-logs'
 $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [EventLog] Transcript unavailable: $($_.Exception.Message)" }
 
 # Statistics tracking
 $script:LogsConfigured = 0
@@ -80,14 +86,14 @@ function Write-LogMessage {
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+    $levelTag = switch ($Level) {
+        'Warning' { 'WARN' }
+        'Error'   { 'ERROR' }
+        'Success' { 'INFO' }
+        default   { 'INFO' }
     }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
+    $logMessage = "[$timestamp] [$levelTag] [EventLog] $Message"
+
     switch ($Level) {
         'Error'   { Write-Host $logMessage -ForegroundColor Red }
         'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
@@ -146,13 +152,13 @@ function Set-EventLogConfiguration {
         $sizeMB = [math]::Round($MaxSize / 1MB, 2)
         $originalSizeMB = [math]::Round($originalSize / 1MB, 2)
         
-        Write-LogMessage "  ✓ $LogName : $originalSizeMB MB → $sizeMB MB" -Level Info
+        Write-LogMessage "  [OK] $LogName : $originalSizeMB MB -> $sizeMB MB" -Level Info
         
         $script:LogsConfigured++
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Failed to configure $LogName : $($_.Exception.Message)" -Level Warning
+        Write-LogMessage "  [FAIL] Failed to configure $LogName : $($_.Exception.Message)" -Level Warning
         $script:LogsFailed++
         return $false
     }
@@ -271,12 +277,12 @@ function Enable-ImportantLogs {
             if (-not $log.IsEnabled) {
                 $log.IsEnabled = $true
                 $log.SaveChanges()
-                Write-LogMessage "  ✓ Enabled: $logName" -Level Info
+                Write-LogMessage "  [OK] Enabled: $logName" -Level Info
                 $enabled++
             }
         }
         catch {
-            Write-LogMessage "  ✗ Could not enable: $logName" -Level Warning
+            Write-LogMessage "  [FAIL] Could not enable: $logName" -Level Warning
         }
     }
     
@@ -369,10 +375,10 @@ function Clear-OldEventLogs {
             # Clear the log
             wevtutil.exe cl $logName 2>&1 | Out-Null
             
-            Write-LogMessage "  ✓ Cleared and backed up: $logName" -Level Info
+            Write-LogMessage "  [OK] Cleared and backed up: $logName" -Level Info
         }
         catch {
-            Write-LogMessage "  ✗ Failed to clear: $logName" -Level Warning
+            Write-LogMessage "  [FAIL] Failed to clear: $logName" -Level Warning
         }
     }
 }
@@ -388,10 +394,10 @@ function Test-EventLogConfiguration {
             $log = Get-WinEvent -ListLog $logName -ErrorAction Stop
             
             if ($log.IsEnabled) {
-                Write-LogMessage "  ✓ $logName is enabled ($([math]::Round($log.MaximumSizeInBytes / 1MB, 2)) MB)" -Level Info
+                Write-LogMessage "  [OK] $logName is enabled ($([math]::Round($log.MaximumSizeInBytes / 1MB, 2)) MB)" -Level Info
             }
             else {
-                Write-LogMessage "  ✗ $logName is disabled" -Level Warning
+                Write-LogMessage "  [FAIL] $logName is disabled" -Level Warning
                 $allConfigured = $false
             }
         }
@@ -461,7 +467,8 @@ function Main {
     Write-LogMessage "Configuration Failures: $script:LogsFailed" -Level Info
     Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
     Write-LogMessage "Log file: $LogFile" -Level Info
-    
+    Write-LogMessage "===== Configure_Event_Log_Sizes complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+
     if ($script:LogsFailed -eq 0) {
         Write-LogMessage "Event log configuration completed successfully!" -Level Success
         exit 0
@@ -474,12 +481,17 @@ function Main {
 
 # Execute main function
 try {
+    $startTime = Get-Date
+    Write-LogMessage "===== Configure_Event_Log_Sizes starting ====="
     Main
 }
 catch {
     Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
     Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

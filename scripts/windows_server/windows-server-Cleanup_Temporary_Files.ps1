@@ -20,7 +20,7 @@
     Cleans temporary files and optimizes disk space
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -44,24 +44,29 @@ try {
     $LogFile = $null
 }
 
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
-    param($Message)
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Host "[$timestamp] [$Level] [Cleanup] $Message"
 }
 
-<# trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+trap {
+    Write-Log "ERROR: $_" -Level ERROR
+    Write-Log "ERROR: $($_.ScriptStackTrace)" -Level ERROR
+    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())" -Level ERROR
     try { Stop-Transcript | Out-Null } catch {}
-    Write-Log 'Sleeping for 60m to give you time to look around the virtual machine before self-destruction...'
-    Start-Sleep -Seconds (60*60)
-    Exit 1
-} #>
+    exit 1
+}
 
 try {
-    Write-Log 'Starting cleanup process...'
+    $startTime = Get-Date
+    Write-Log '===== Cleanup_Temporary_Files starting ====='
 
     # CleanMgr (workstation only)
     $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
@@ -201,7 +206,9 @@ try {
         Write-Log "Warning: Failed to remove pagefile: $($_.Exception.Message)"
     }
 
-    Write-Log "Cleanup script completed successfully."
+    Write-Log "===== Cleanup_Temporary_Files complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 } finally {
     try { Stop-Transcript | Out-Null } catch {}
 }
+
+exit 0

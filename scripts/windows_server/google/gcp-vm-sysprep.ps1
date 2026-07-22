@@ -27,7 +27,7 @@
     Runs generalized sysprep with shutdown
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -41,31 +41,29 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'gcp-vm-sysprep'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [GCPSysprep] Transcript unavailable: $($_.Exception.Message)" }
 
 function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [GCPSysprep] $Message"
+    $logMessage = "[$timestamp] [$Level] [GCPSysprep] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -75,6 +73,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== gcp-vm-sysprep starting ====="
     
     Write-Log "========================================================="
     Write-Log "Google Compute Engine VM Sysprep"
@@ -88,10 +87,10 @@ try {
     try {
         $instanceId = Invoke-RestMethod -Uri 'http://metadata.google.internal/computeMetadata/v1/instance/id' `
             -Headers @{'Metadata-Flavor'='Google'} -TimeoutSec 2
-        Write-Log "✓ Running on GCE instance: $instanceId"
+        Write-Log "[OK] Running on GCE instance: $instanceId"
     }
     catch {
-        Write-Log "Warning: Not running on GCE instance" -Level Warning
+        Write-Log "Warning: Not running on GCE instance" -Level WARN
     }
     
     # Configure RDP
@@ -99,17 +98,17 @@ try {
     Write-Log "Configuring RDP..."
     $rdpPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
     Set-ItemProperty -Path $rdpPath -Name 'fDenyTSConnections' -Value 0 -Type DWord -Force
-    Write-Log "✓ Enabled RDP"
+    Write-Log "[OK] Enabled RDP"
     
     # Configure GCE agent (if present)
     Write-Log ""
     Write-Log "Checking GCE agent..."
     $gceService = Get-Service -Name 'GCEAgent' -ErrorAction SilentlyContinue
     if ($gceService) {
-        Write-Log "✓ GCE Agent: $($gceService.Status)"
+        Write-Log "[OK] GCE Agent: $($gceService.Status)"
     }
     else {
-        Write-Log "GCE Agent not found" -Level Warning
+        Write-Log "GCE Agent not found" -Level WARN
     }
     
     # Sysprep execution
@@ -138,7 +137,7 @@ try {
     $process = Start-Process -FilePath $sysprepPath -ArgumentList $sysprepArgs -Wait -PassThru -NoNewWindow
     
     if ($process.ExitCode -eq 0) {
-        Write-Log "✓ Sysprep completed successfully"
+        Write-Log "[OK] Sysprep completed successfully"
     }
     else {
         throw "Sysprep failed with exit code: $($process.ExitCode)"
@@ -157,7 +156,11 @@ try {
     Write-Log ""
     Write-Log "VM is ready for GCE image creation"
     
+    Write-Log "===== gcp-vm-sysprep complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Sysprep failed: $_" -Level Error
+    Write-Log "Sysprep failed: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

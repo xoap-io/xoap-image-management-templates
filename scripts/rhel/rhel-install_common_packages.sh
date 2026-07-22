@@ -147,9 +147,9 @@ VERIFICATION_FAILED=0
 
 for package in "${CRITICAL_PACKAGES[@]}"; do
     if rpm -q "$package" &>/dev/null; then
-        log_info "✓ $package installed"
+        log_info "[OK] $package installed"
     else
-        log_warn "✗ $package not installed"
+        log_warn "[FAIL] $package not installed"
         VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
     fi
 done

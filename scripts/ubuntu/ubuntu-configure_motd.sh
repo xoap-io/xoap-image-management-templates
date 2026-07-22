@@ -82,7 +82,7 @@ if [[ "$DISABLE_DEFAULTS" == true ]]; then
     for script in "${DEFAULT_SCRIPTS[@]}"; do
         if [[ -f "/etc/update-motd.d/$script" ]]; then
             chmod -x "/etc/update-motd.d/$script"
-            log_info "  ✓ Disabled $script"
+            log_info "  [OK] Disabled $script"
             ((CONFIGS_APPLIED++))
         fi
     done
@@ -91,7 +91,7 @@ if [[ "$DISABLE_DEFAULTS" == true ]]; then
     if systemctl is-active --quiet motd-news.timer 2>/dev/null; then
         systemctl disable --quiet motd-news.timer 2>/dev/null || true
         systemctl stop motd-news.timer 2>/dev/null || true
-        log_info "  ✓ Disabled motd-news.timer"
+        log_info "  [OK] Disabled motd-news.timer"
         ((CONFIGS_APPLIED++))
     fi
 fi
@@ -121,7 +121,7 @@ echo ""
 EOF
 
 chmod +x /etc/update-motd.d/00-header
-log_info "✓ Custom MOTD header created"
+log_info "[OK] Custom MOTD header created"
 ((CONFIGS_APPLIED++))
 
 # Create system information MOTD script
@@ -145,7 +145,7 @@ echo ""
 EOF
 
 chmod +x /etc/update-motd.d/05-system-info
-log_info "✓ System information script created"
+log_info "[OK] System information script created"
 ((CONFIGS_APPLIED++))
 
 # Create last login MOTD script
@@ -166,7 +166,7 @@ echo ""
 EOF
 
 chmod +x /etc/update-motd.d/10-last-login
-log_info "✓ Last login script created"
+log_info "[OK] Last login script created"
 ((CONFIGS_APPLIED++))
 
 # Create security updates MOTD script
@@ -200,7 +200,7 @@ fi
 EOF
 
 chmod +x /etc/update-motd.d/90-updates-available
-log_info "✓ Updates available script created"
+log_info "[OK] Updates available script created"
 ((CONFIGS_APPLIED++))
 
 # Create footer MOTD script
@@ -220,20 +220,20 @@ echo ""
 EOF
 
 chmod +x /etc/update-motd.d/99-footer
-log_info "✓ Custom MOTD footer created"
+log_info "[OK] Custom MOTD footer created"
 ((CONFIGS_APPLIED++))
 
 # Clean old MOTD
 log_info "Cleaning static MOTD file..."
 
 > /etc/motd
-log_info "✓ Static MOTD cleared"
+log_info "[OK] Static MOTD cleared"
 
 # Test MOTD generation
 log_info "Testing MOTD generation..."
 
 if run-parts --lsbsysinit /etc/update-motd.d > /tmp/motd_test.txt 2>&1; then
-    log_info "✓ MOTD generation successful"
+    log_info "[OK] MOTD generation successful"
     
     log_info ""
     log_info "Generated MOTD preview:"
@@ -255,7 +255,7 @@ chmod 755 /etc/update-motd.d
 find /etc/update-motd.d -type f -exec chmod 644 {} \;
 find /etc/update-motd.d -type f -name "[0-9]*" -exec chmod +x {} \;
 
-log_info "✓ Permissions set"
+log_info "[OK] Permissions set"
 ((CONFIGS_APPLIED++))
 
 # Summary statistics

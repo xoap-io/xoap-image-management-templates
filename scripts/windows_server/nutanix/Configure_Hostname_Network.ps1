@@ -9,7 +9,7 @@
     
     Developed and optimized for use with the XOAP Image Management module, but can be used independently.
     No liability is assumed for the function, use, or consequences of this freely available script.
-    PowerShell is a product of Microsoft Corporation. XOAP is a product of RIS AG. © RIS AG
+    PowerShell is a product of Microsoft Corporation. XOAP is a product of RIS AG. (c) RIS AG
 
 .PARAMETER InstallerPath
     Optional explicit path to the NGT installer. If not specified, searches all CD/DVD drives.
@@ -32,7 +32,7 @@
     PowerShell
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -67,6 +67,7 @@ $ErrorActionPreference = 'Stop'
 $script:NGTServiceNames = @('NutanixGuestAgent', 'ngt_guest_agent')
 $script:TasksCompleted = 0
 $script:TasksFailed = 0
+$script:startTime = Get-Date
 
 #region Logging Functions
 
@@ -75,24 +76,13 @@ function Initialize-Logging {
     .SYNOPSIS
         Initializes transcript logging to C:\xoap-logs
     #>
+    $LogDir = 'C:\xoap-logs'
     try {
-        $LogDir = 'C:\xoap-logs'
-        if (-not (Test-Path $LogDir)) {
-            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-        }
-        
-        $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-        $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        $script:LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
-        
+        if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+        $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+            [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
         Start-Transcript -Path $script:LogFile -Append | Out-Null
-        Write-Log "Logging initialized: $script:LogFile" -Level Info
-        return $true
-    }
-    catch {
-        Write-Warning "Failed to start transcript logging: $($_.Exception.Message)"
-        return $false
-    }
+    } catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [Nutanix] Transcript unavailable: $($_.Exception.Message)" }
 }
 
 function Write-Log {
@@ -105,19 +95,12 @@ function Write-Log {
         [string]$Message,
         
         [Parameter(Mandatory = $false)]
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $formattedMessage = "[$timestamp] [$Level] $Message"
-    
-    switch ($Level) {
-        'Error'   { Write-Host $formattedMessage -ForegroundColor Red }
-        'Warning' { Write-Host $formattedMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $formattedMessage -ForegroundColor Green }
-        default   { Write-Host $formattedMessage }
-    }
+    Write-Host "[$timestamp] [$Level] [Nutanix] $Message"
 }
 
 function Stop-Logging {
@@ -135,6 +118,7 @@ function Stop-Logging {
     Write-Log "Exit code: $ExitCode"
     Write-Log "=============================================="
     
+    Write-Log "===== Configure_Hostname_Network complete in $([int]((Get-Date) - $script:startTime).TotalSeconds)s; exit=$ExitCode ====="
     try { Stop-Transcript | Out-Null } catch {}
     exit $ExitCode
 }
@@ -144,9 +128,9 @@ function Stop-Logging {
 #region Error Handling
 
 trap {
-    Write-Log "FATAL ERROR: $_" -Level Error
-    Write-Log "Stack Trace: $($_.ScriptStackTrace)" -Level Error
-    Write-Log "Exception: $($_.Exception.ToString())" -Level Error
+    Write-Log "FATAL ERROR: $_" -Level ERROR
+    Write-Log "Stack Trace: $($_.ScriptStackTrace)" -Level ERROR
+    Write-Log "Exception: $($_.Exception.ToString())" -Level ERROR
     Stop-Logging -ExitCode 1
 }
 
@@ -165,7 +149,7 @@ function Test-NGTInstalled {
     [OutputType([bool])]
     param()
     
-    Write-Log "Checking for existing Nutanix Guest Tools installation..." -Level Info
+    Write-Log "Checking for existing Nutanix Guest Tools installation..." -Level INFO
     
     # Check via registry
     $registryPaths = @(
@@ -180,15 +164,15 @@ function Test-NGTInstalled {
                        Select-Object -First 1
             
             if ($ngtEntry) {
-                Write-Log "Nutanix Guest Tools found: $($ngtEntry.DisplayName)" -Level Info
-                Write-Log "  Version: $($ngtEntry.DisplayVersion)" -Level Info
-                Write-Log "  Publisher: $($ngtEntry.Publisher)" -Level Info
-                Write-Log "  Install Location: $($ngtEntry.InstallLocation)" -Level Info
+                Write-Log "Nutanix Guest Tools found: $($ngtEntry.DisplayName)" -Level INFO
+                Write-Log "  Version: $($ngtEntry.DisplayVersion)" -Level INFO
+                Write-Log "  Publisher: $($ngtEntry.Publisher)" -Level INFO
+                Write-Log "  Install Location: $($ngtEntry.InstallLocation)" -Level INFO
                 return $true
             }
         }
         catch {
-            Write-Log "Registry check failed for ${path}: $($_.Exception.Message)" -Level Warning
+            Write-Log "Registry check failed for ${path}: $($_.Exception.Message)" -Level WARN
         }
     }
     
@@ -197,17 +181,17 @@ function Test-NGTInstalled {
         try {
             $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
             if ($service) {
-                Write-Log "Nutanix Guest Tools service detected: $serviceName" -Level Info
-                Write-Log "  Status: $($service.Status)" -Level Info
+                Write-Log "Nutanix Guest Tools service detected: $serviceName" -Level INFO
+                Write-Log "  Status: $($service.Status)" -Level INFO
                 return $true
             }
         }
         catch {
-            Write-Log "Service check failed for ${serviceName}: $($_.Exception.Message)" -Level Warning
+            Write-Log "Service check failed for ${serviceName}: $($_.Exception.Message)" -Level WARN
         }
     }
     
-    Write-Log "Nutanix Guest Tools not detected" -Level Info
+    Write-Log "Nutanix Guest Tools not detected" -Level INFO
     return $false
 }
 
@@ -222,7 +206,7 @@ function Test-NGTService {
     [OutputType([bool])]
     param()
     
-    Write-Log "Verifying Nutanix Guest Tools service status..." -Level Info
+    Write-Log "Verifying Nutanix Guest Tools service status..." -Level INFO
     
     for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
         foreach ($serviceName in $script:NGTServiceNames) {
@@ -230,43 +214,43 @@ function Test-NGTService {
                 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
                 
                 if ($service) {
-                    Write-Log "Service found: $serviceName (Status: $($service.Status))" -Level Info
+                    Write-Log "Service found: $serviceName (Status: $($service.Status))" -Level INFO
                     
                     if ($service.Status -eq 'Running') {
-                        Write-Log "Nutanix Guest Tools service is running" -Level Success
+                        Write-Log "Nutanix Guest Tools service is running" -Level INFO
                         return $true
                     }
                     
                     if ($service.Status -eq 'Stopped') {
-                        Write-Log "Attempting to start service: $serviceName..." -Level Warning
+                        Write-Log "Attempting to start service: $serviceName..." -Level WARN
                         try {
                             Start-Service -Name $serviceName -ErrorAction Stop
                             Start-Sleep -Seconds 2
                             
                             $service = Get-Service -Name $serviceName -ErrorAction Stop
                             if ($service.Status -eq 'Running') {
-                                Write-Log "Successfully started service: $serviceName" -Level Success
+                                Write-Log "Successfully started service: $serviceName" -Level INFO
                                 return $true
                             }
                         }
                         catch {
-                            Write-Log "Failed to start service: $($_.Exception.Message)" -Level Warning
+                            Write-Log "Failed to start service: $($_.Exception.Message)" -Level WARN
                         }
                     }
                 }
             }
             catch {
-                Write-Log "Service check failed for ${serviceName}: $($_.Exception.Message)" -Level Warning
+                Write-Log "Service check failed for ${serviceName}: $($_.Exception.Message)" -Level WARN
             }
         }
         
         if ($attempt -lt $MaxRetries) {
-            Write-Log "Retrying service verification in $RetryInterval seconds... (attempt $attempt/$MaxRetries)" -Level Info
+            Write-Log "Retrying service verification in $RetryInterval seconds... (attempt $attempt/$MaxRetries)" -Level INFO
             Start-Sleep -Seconds $RetryInterval
         }
     }
     
-    Write-Log "No Nutanix Guest Tools service is running after $MaxRetries attempts" -Level Warning
+    Write-Log "No Nutanix Guest Tools service is running after $MaxRetries attempts" -Level WARN
     return $false
 }
 
@@ -285,7 +269,7 @@ function Find-NGTInstaller {
     [OutputType([string])]
     param()
     
-    Write-Log "Searching for Nutanix Guest Tools installer..." -Level Info
+    Write-Log "Searching for Nutanix Guest Tools installer..." -Level INFO
     
     # Get all CD/DVD drives
     try {
@@ -294,14 +278,14 @@ function Find-NGTInstaller {
                    Select-Object -ExpandProperty Drive
         
         if (-not $cdDrives) {
-            Write-Log "No CD/DVD drives detected" -Level Warning
+            Write-Log "No CD/DVD drives detected" -Level WARN
             return $null
         }
         
-        Write-Log "Found $(@($cdDrives).Count) CD/DVD drive(s): $($cdDrives -join ', ')" -Level Info
+        Write-Log "Found $(@($cdDrives).Count) CD/DVD drive(s): $($cdDrives -join ', ')" -Level INFO
     }
     catch {
-        Write-Log "Failed to enumerate CD/DVD drives: $($_.Exception.Message)" -Level Error
+        Write-Log "Failed to enumerate CD/DVD drives: $($_.Exception.Message)" -Level ERROR
         return $null
     }
     
@@ -309,19 +293,19 @@ function Find-NGTInstaller {
     foreach ($drive in $cdDrives) {
         $installerPath = Join-Path $drive 'Windows\NutanixGuestTools.msi'
         
-        Write-Log "Checking: $installerPath" -Level Info
+        Write-Log "Checking: $installerPath" -Level INFO
         
         if (Test-Path $installerPath) {
-            Write-Log "Nutanix Guest Tools installer found: $installerPath" -Level Success
+            Write-Log "Nutanix Guest Tools installer found: $installerPath" -Level INFO
             
             # Get file details
             try {
                 $fileInfo = Get-Item $installerPath -ErrorAction Stop
-                Write-Log "  Size: $([math]::Round($fileInfo.Length / 1MB, 2)) MB" -Level Info
-                Write-Log "  Last Modified: $($fileInfo.LastWriteTime)" -Level Info
+                Write-Log "  Size: $([math]::Round($fileInfo.Length / 1MB, 2)) MB" -Level INFO
+                Write-Log "  Last Modified: $($fileInfo.LastWriteTime)" -Level INFO
             }
             catch {
-                Write-Log "Could not retrieve file details: $($_.Exception.Message)" -Level Warning
+                Write-Log "Could not retrieve file details: $($_.Exception.Message)" -Level WARN
             }
             
             return $installerPath
@@ -329,7 +313,7 @@ function Find-NGTInstaller {
     }
     
     # Alternative search - check root of CD drives
-    Write-Log "Standard path not found, checking alternative locations..." -Level Info
+    Write-Log "Standard path not found, checking alternative locations..." -Level INFO
     foreach ($drive in $cdDrives) {
         try {
             $msiFiles = Get-ChildItem -Path $drive -Filter "*.msi" -Recurse -ErrorAction SilentlyContinue |
@@ -337,16 +321,16 @@ function Find-NGTInstaller {
             
             if ($msiFiles) {
                 $installerPath = $msiFiles[0].FullName
-                Write-Log "Found alternative installer path: $installerPath" -Level Success
+                Write-Log "Found alternative installer path: $installerPath" -Level INFO
                 return $installerPath
             }
         }
         catch {
-            Write-Log "Search failed for drive ${drive}: $($_.Exception.Message)" -Level Warning
+            Write-Log "Search failed for drive ${drive}: $($_.Exception.Message)" -Level WARN
         }
     }
     
-    Write-Log "Nutanix Guest Tools installer not found on any CD/DVD drive" -Level Warning
+    Write-Log "Nutanix Guest Tools installer not found on any CD/DVD drive" -Level WARN
     return $null
 }
 
@@ -364,9 +348,9 @@ function Install-NGT {
         [string]$InstallerPath
     )
     
-    Write-Log "Installing Nutanix Guest Tools..." -Level Info
-    Write-Log "  Installer: $InstallerPath" -Level Info
-    Write-Log "  Arguments: /i /qn /norestart" -Level Info
+    Write-Log "Installing Nutanix Guest Tools..." -Level INFO
+    Write-Log "  Installer: $InstallerPath" -Level INFO
+    Write-Log "  Arguments: /i /qn /norestart" -Level INFO
     
     try {
         $process = Start-Process -FilePath 'msiexec.exe' `
@@ -376,31 +360,31 @@ function Install-NGT {
                                 -NoNewWindow `
                                 -ErrorAction Stop
         
-        Write-Log "Installation process completed with exit code: $($process.ExitCode)" -Level Info
+        Write-Log "Installation process completed with exit code: $($process.ExitCode)" -Level INFO
         
         # MSI exit codes: 0 = success, 3010 = success with reboot required
         if ($process.ExitCode -eq 0) {
-            Write-Log "Nutanix Guest Tools installation succeeded" -Level Success
+            Write-Log "Nutanix Guest Tools installation succeeded" -Level INFO
             Start-Sleep -Seconds 5  # Allow services to initialize
             return $true
         }
         elseif ($process.ExitCode -eq 3010) {
-            Write-Log "Installation succeeded but requires reboot (exit code 3010)" -Level Warning
+            Write-Log "Installation succeeded but requires reboot (exit code 3010)" -Level WARN
             Start-Sleep -Seconds 5
             return $true
         }
         elseif ($process.ExitCode -eq 1638) {
-            Write-Log "Another version is already installed (exit code 1638)" -Level Warning
+            Write-Log "Another version is already installed (exit code 1638)" -Level WARN
             return $true
         }
         else {
-            Write-Log "Installation failed with exit code: $($process.ExitCode)" -Level Error
-            Write-Log "Check detailed log: C:\xoap-logs\NGT-Install.log" -Level Error
+            Write-Log "Installation failed with exit code: $($process.ExitCode)" -Level ERROR
+            Write-Log "Check detailed log: C:\xoap-logs\NGT-Install.log" -Level ERROR
             return $false
         }
     }
     catch {
-        Write-Log "Installation exception: $($_.Exception.Message)" -Level Error
+        Write-Log "Installation exception: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
@@ -412,8 +396,9 @@ function Install-NGT {
 try {
     # Initialize logging
     Initialize-Logging | Out-Null
+    Write-Log "===== Configure_Hostname_Network starting ====="
     
-    $startTime = Get-Date
+    $script:startTime = Get-Date
     
     Write-Log "=============================================="
     Write-Log "Nutanix Guest Tools Installation Script"
@@ -421,21 +406,21 @@ try {
     Write-Log "Script: $PSCommandPath"
     Write-Log "Max Retries: $MaxRetries"
     Write-Log "Retry Interval: $RetryInterval seconds"
-    Write-Log "Started: $($startTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+    Write-Log "Started: $($script:startTime.ToString('yyyy-MM-dd HH:mm:ss'))"
     Write-Log "=============================================="
     
     # Check if already installed and running
     if (Test-NGTInstalled) {
-        Write-Log "Nutanix Guest Tools is already installed" -Level Info
+        Write-Log "Nutanix Guest Tools is already installed" -Level INFO
         
         if (Test-NGTService) {
-            Write-Log "Nutanix Guest Tools is properly installed and running" -Level Success
+            Write-Log "Nutanix Guest Tools is properly installed and running" -Level INFO
             $script:TasksCompleted++
             Stop-Logging -ExitCode 0
         }
         else {
-            Write-Log "Nutanix Guest Tools is installed but service is not running" -Level Warning
-            Write-Log "This may be normal if services start on next boot" -Level Info
+            Write-Log "Nutanix Guest Tools is installed but service is not running" -Level WARN
+            Write-Log "This may be normal if services start on next boot" -Level INFO
             $script:TasksCompleted++
             Stop-Logging -ExitCode 0
         }
@@ -444,7 +429,7 @@ try {
     # Locate installer
     Write-Log ""
     if ($InstallerPath) {
-        Write-Log "Using specified installer path: $InstallerPath" -Level Info
+        Write-Log "Using specified installer path: $InstallerPath" -Level INFO
         $ngtInstaller = $InstallerPath
     }
     else {
@@ -452,15 +437,15 @@ try {
     }
     
     if (-not $ngtInstaller) {
-        Write-Log "Nutanix Guest Tools installer not found" -Level Warning
-        Write-Log "This is expected if not running on Nutanix AHV hypervisor" -Level Info
+        Write-Log "Nutanix Guest Tools installer not found" -Level WARN
+        Write-Log "This is expected if not running on Nutanix AHV hypervisor" -Level INFO
         Stop-Logging -ExitCode 0
     }
     
     # Install NGT
     Write-Log ""
     if (-not (Install-NGT -InstallerPath $ngtInstaller)) {
-        Write-Log "Installation failed" -Level Error
+        Write-Log "Installation failed" -Level ERROR
         $script:TasksFailed++
         Stop-Logging -ExitCode 1
     }
@@ -469,37 +454,37 @@ try {
     
     # Verify installation
     Write-Log ""
-    Write-Log "Performing post-installation verification..." -Level Info
+    Write-Log "Performing post-installation verification..." -Level INFO
     
     if (Test-NGTInstalled) {
-        Write-Log "Installation verified successfully" -Level Success
+        Write-Log "Installation verified successfully" -Level INFO
         $script:TasksCompleted++
         
         if (Test-NGTService) {
-            Write-Log "Service verification successful" -Level Success
+            Write-Log "Service verification successful" -Level INFO
             $script:TasksCompleted++
         }
         else {
-            Write-Log "Service not running yet (may start after reboot)" -Level Warning
+            Write-Log "Service not running yet (may start after reboot)" -Level WARN
         }
     }
     else {
-        Write-Log "Installation verification failed" -Level Error
+        Write-Log "Installation verification failed" -Level ERROR
         $script:TasksFailed++
         Stop-Logging -ExitCode 1
     }
     
     # Calculate execution time
     $endTime = Get-Date
-    $duration = $endTime - $startTime
+    $duration = $endTime - $script:startTime
     Write-Log ""
-    Write-Log "Total execution time: $($duration.TotalSeconds) seconds" -Level Info
+    Write-Log "Total execution time: $($duration.TotalSeconds) seconds" -Level INFO
     
-    Write-Log "Nutanix Guest Tools installation completed successfully" -Level Success
+    Write-Log "Nutanix Guest Tools installation completed successfully" -Level INFO
     Stop-Logging -ExitCode 0
 }
 catch {
-    Write-Log "Unhandled exception in main execution: $_" -Level Error
+    Write-Log "Unhandled exception in main execution: $_" -Level ERROR
     $script:TasksFailed++
     Stop-Logging -ExitCode 1
 }

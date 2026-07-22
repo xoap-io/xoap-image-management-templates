@@ -32,7 +32,7 @@
     Installs only the guest agent
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -53,9 +53,12 @@ $ProgressPreference = 'SilentlyContinue'
 
 # Configuration
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'proxmox-guest-agent-install'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [ProxmoxGA] Transcript unavailable: $($_.Exception.Message)" }
 
 $script:InstallationsCompleted = 0
 $script:InstallationsFailed = 0
@@ -65,23 +68,18 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [ProxmoxGA] $Message"
+    $logMessage = "[$timestamp] [$Level] [ProxmoxGA] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -91,6 +89,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Install_Proxmox_Guest_Agent starting ====="
     
     Write-Log "========================================================="
     Write-Log "Proxmox Guest Agent Installation"
@@ -105,12 +104,12 @@ try {
     $model = (Get-WmiObject -Class Win32_ComputerSystem).Model
     
     if ($manufacturer -like '*QEMU*' -or $model -like '*QEMU*') {
-        Write-Log "✓ QEMU/Proxmox detected"
+        Write-Log "[OK] QEMU/Proxmox detected"
         Write-Log "  Manufacturer: $manufacturer"
         Write-Log "  Model: $model"
     }
     else {
-        Write-Log "Warning: QEMU/Proxmox not detected" -Level Warning
+        Write-Log "Warning: QEMU/Proxmox not detected" -Level WARN
         Write-Log "Continuing anyway..."
     }
     
@@ -120,16 +119,16 @@ try {
     
     $agentService = Get-Service -Name 'QEMU-GA' -ErrorAction SilentlyContinue
     if ($agentService) {
-        Write-Log "✓ QEMU Guest Agent already installed"
+        Write-Log "[OK] QEMU Guest Agent already installed"
         Write-Log "  Status: $($agentService.Status)"
         
         if ($agentService.Status -ne 'Running') {
             try {
                 Start-Service -Name 'QEMU-GA' -ErrorAction Stop
-                Write-Log "✓ Started QEMU Guest Agent service"
+                Write-Log "[OK] Started QEMU Guest Agent service"
             }
             catch {
-                Write-Log "Failed to start service: $($_.Exception.Message)" -Level Warning
+                Write-Log "Failed to start service: $($_.Exception.Message)" -Level WARN
             }
         }
     }
@@ -160,7 +159,7 @@ try {
                     
                     if ($found) {
                         $installerFile = $found.FullName
-                        Write-Log "✓ Found installer: $installerFile"
+                        Write-Log "[OK] Found installer: $installerFile"
                         break
                     }
                 }
@@ -184,7 +183,7 @@ try {
             $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $msiArgs -Wait -PassThru -NoNewWindow
             
             if ($process.ExitCode -eq 0) {
-                Write-Log "✓ QEMU Guest Agent installed successfully"
+                Write-Log "[OK] QEMU Guest Agent installed successfully"
                 $script:InstallationsCompleted++
                 
                 # Start service
@@ -193,17 +192,17 @@ try {
                 if ($svc) {
                     if ($svc.Status -ne 'Running') {
                         Start-Service -Name 'QEMU-GA'
-                        Write-Log "✓ Started QEMU Guest Agent service"
+                        Write-Log "[OK] Started QEMU Guest Agent service"
                     }
                 }
             }
             else {
-                Write-Log "Installation failed with exit code: $($process.ExitCode)" -Level Error
+                Write-Log "Installation failed with exit code: $($process.ExitCode)" -Level ERROR
                 $script:InstallationsFailed++
             }
         }
         else {
-            Write-Log "QEMU Guest Agent installer not found" -Level Warning
+            Write-Log "QEMU Guest Agent installer not found" -Level WARN
             $script:InstallationsFailed++
         }
     }
@@ -218,7 +217,7 @@ try {
         }
         
         if ($virtioDrivers) {
-            Write-Log "✓ VirtIO drivers already installed:"
+            Write-Log "[OK] VirtIO drivers already installed:"
             foreach ($driver in $virtioDrivers) {
                 Write-Log "  - $($driver.DeviceName) [$($driver.DriverVersion)]"
             }
@@ -243,17 +242,17 @@ try {
                     foreach ($inf in $infFiles) {
                         try {
                             $result = pnputil /add-driver $inf.FullName /install
-                            Write-Log "✓ Installed: $($inf.Name)"
+                            Write-Log "[OK] Installed: $($inf.Name)"
                             $script:InstallationsCompleted++
                         }
                         catch {
-                            Write-Log "Failed to install $($inf.Name)" -Level Warning
+                            Write-Log "Failed to install $($inf.Name)" -Level WARN
                         }
                     }
                 }
             }
             else {
-                Write-Log "VirtIO drivers path not provided, skipping" -Level Warning
+                Write-Log "VirtIO drivers path not provided, skipping" -Level WARN
             }
         }
     }
@@ -273,10 +272,14 @@ try {
     
     $agentFinal = Get-Service -Name 'QEMU-GA' -ErrorAction SilentlyContinue
     if ($agentFinal -and $agentFinal.Status -eq 'Running') {
-        Write-Log "✓ QEMU Guest Agent is running"
+        Write-Log "[OK] QEMU Guest Agent is running"
     }
     
+    Write-Log "===== Install_Proxmox_Guest_Agent complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Installation failed: $_" -Level Error
+    Write-Log "Installation failed: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

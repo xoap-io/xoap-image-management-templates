@@ -10,7 +10,7 @@
     File Name      : windows11-Prepare_AVD_Imaging.ps1
     Prerequisite   : PowerShell 5.1 or higher, Administrator privileges
     Copyright      : XOAP.io
-    
+
 .EXAMPLE
     .\windows11-Prepare_AVD_Imaging.ps1
     Prepares image for AVD customization
@@ -19,21 +19,41 @@
 [CmdletBinding()]
 Param ()
 
-function Log {
-    param([string]$msg)
-    Write-Host "[AVD-PREP] $msg"
+function Write-Log {
+    param(
+        [string]$Message,
+
+        [ValidateSet('INFO','WARN','ERROR')]
+        [string]$Level = 'INFO'
+    )
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    Write-Host "[$timestamp] [$Level] [AVD-Prep] $Message"
 }
 
 $ErrorActionPreference = 'Stop'
 
+$LogDir = 'C:\xoap-logs'
 try {
-    Log "Disabling Windows Defender real-time scan..."
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [AVD-Prep] Transcript unavailable: $($_.Exception.Message)" }
+
+try {
+    $startTime = Get-Date
+    Write-Log "===== Prepare_AVD_Imaging starting ====="
+    Write-Log "Disabling Windows Defender real-time scan..."
     Set-MpPreference -DisableRealtimeMonitoring $true
-    Log "Disabling Windows Store updates..."
+    Write-Log "Disabling Windows Store updates..."
     REG add HKLM\Software\Policies\Microsoft\Windows\CloudContent /v "DisableWindowsConsumerFeatures" /d 1 /t "REG_DWORD" /f
     REG add HKLM\Software\Policies\Microsoft\WindowsStore /v "AutoDownload" /d 2 /t "REG_DWORD" /f
-    Log "Image preparation complete."
+    Write-Log "Image preparation complete."
+    Write-Log "===== Prepare_AVD_Imaging complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } catch {
-    Log "Error: $($_.Exception.Message)"
+    Write-Log "Error: $($_.Exception.Message)"
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

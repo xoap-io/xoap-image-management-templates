@@ -20,7 +20,7 @@
     Enables and enforces TLS 1.2 protocol
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -43,22 +43,29 @@ try {
     Write-Warning "Failed to start transcript logging to C:\xoap-logs: $($_.Exception.Message)"
 }
 
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
-    param($Message)
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Host "[$timestamp] [$Level] [TLS] $Message"
 }
 
 trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+    Write-Log "ERROR: $_" -Level ERROR
+    Write-Log "ERROR: $($_.ScriptStackTrace)" -Level ERROR
+    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())" -Level ERROR
     try { Stop-Transcript | Out-Null } catch {}
-    Exit 1
+    exit 1
 }
 
 try {
-    Write-Log 'Configuring TLS 1.2 for client and server...'
+    $startTime = Get-Date
+    Write-Log '===== Enable_TLS1_2 starting ====='
 
     $basePath = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2'
     $clientPath = Join-Path $basePath 'Client'
@@ -73,9 +80,11 @@ try {
         Write-Log "Configured TLS 1.2 at $path"
     }
 
-    Write-Log 'TLS 1.2 configuration completed successfully.'
+    Write-Log "===== Enable_TLS1_2 complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 } finally {
     try { Stop-Transcript | Out-Null } catch {
-        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)"
+        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)" -Level WARN
     }
 }
+
+exit 0

@@ -20,7 +20,7 @@
     Disables Windows telemetry and data collection
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -45,23 +45,29 @@ try {
     Write-Warning "Failed to start transcript logging to C:\xoap-logs: $($_.Exception.Message)"
 }
 
-# Simple logging function
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
-    param($Message)
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Host "[$timestamp] [$Level] [Telemetry] $Message"
 }
 
 trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+    Write-Log "ERROR: $_" -Level ERROR
+    Write-Log "ERROR: $($_.ScriptStackTrace)" -Level ERROR
+    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())" -Level ERROR
     try { Stop-Transcript | Out-Null } catch {}
-    Exit 1
+    exit 1
 }
 
 try {
-    Write-Log 'Starting telemetry disabling'
+    $startTime = Get-Date
+    Write-Log '===== Disable_Telemetry starting ====='
 
     # Disable Windows telemetry
     $telemetrySettings = @(
@@ -123,7 +129,9 @@ try {
         }
     }
 
-    Write-Log "Telemetry disabling completed successfully"
+    Write-Log "===== Disable_Telemetry complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 } finally {
     try { Stop-Transcript | Out-Null } catch {}
 }
+
+exit 0

@@ -66,7 +66,7 @@ if ! command -v tuned-adm &>/dev/null; then
     log_info "Installing tuned..."
     
     if zypper install -y tuned; then
-        log_info "✓ tuned installed"
+        log_info "[OK] tuned installed"
         ((OPTIMIZATIONS_APPLIED++))
     else
         log_warn "Failed to install tuned, will apply manual optimizations"
@@ -83,7 +83,7 @@ if command -v tuned-adm &>/dev/null; then
     systemctl start tuned
     
     if tuned-adm profile "$TUNED_PROFILE"; then
-        log_info "✓ Tuned profile applied"
+        log_info "[OK] Tuned profile applied"
         ((OPTIMIZATIONS_APPLIED++))
     else
         log_warn "Failed to apply tuned profile"
@@ -96,7 +96,7 @@ else
     log_info "Optimizing swappiness..."
     echo "vm.swappiness = 10" > /etc/sysctl.d/99-swappiness.conf
     sysctl -w vm.swappiness=10 &>/dev/null
-    log_info "✓ Swappiness set to 10"
+    log_info "[OK] Swappiness set to 10"
     ((OPTIMIZATIONS_APPLIED++))
     
     # Optimize I/O scheduler
@@ -127,7 +127,7 @@ EOF
 
 systemctl daemon-reload
 
-log_info "✓ systemd settings optimized"
+log_info "[OK] systemd settings optimized"
 ((OPTIMIZATIONS_APPLIED++))
 
 # Summary statistics

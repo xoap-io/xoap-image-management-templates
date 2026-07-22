@@ -20,7 +20,7 @@
     Clears all Windows Event Logs
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -29,27 +29,22 @@ $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
 # Setup local file logging to C:\xoap-logs
+$LogDir = 'C:\xoap-logs'
 try {
-    $LogDir = 'C:\xoap-logs'
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-
-    $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
-
-    Start-Transcript -Path $LogFile -Append | Out-Null
-    Write-Host "Logging to: $LogFile"
-} catch {
-    Write-Warning "Failed to start transcript logging to C:\xoap-logs: $($_.Exception.Message)"
-}
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [EventLog] Transcript unavailable: $($_.Exception.Message)" }
 
 # Simple logging function
 function Write-Log {
-    param($Message)
+    param(
+        $Message,
+        [ValidateSet('INFO','WARN','ERROR')][string]$Level = 'INFO'
+    )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Host "[$timestamp] [$Level] [EventLog] $Message"
 }
 
 trap {
@@ -61,6 +56,8 @@ trap {
 }
 
 try {
+    Write-Log '===== Clear_Event_Logs starting ====='
+    $startTime = Get-Date
     Write-Log 'Starting event log cleanup'
 
     Write-Log 'Getting list of event logs...'
@@ -78,6 +75,8 @@ try {
     }
 
     Write-Log "Event log cleanup completed successfully"
+    Write-Log "===== Clear_Event_Logs complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } finally {
     try { Stop-Transcript | Out-Null } catch {}
 }

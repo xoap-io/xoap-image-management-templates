@@ -113,9 +113,9 @@ fi
 log_info "Executing registration..."
 
 if $REGISTER_CMD 2>&1 | tee /tmp/suse-register.log; then
-    log_info "✓ System registered successfully"
+    log_info "[OK] System registered successfully"
 else
-    log_error "✗ Registration failed"
+    log_error "[FAIL] Registration failed"
     cat /tmp/suse-register.log
     exit 1
 fi

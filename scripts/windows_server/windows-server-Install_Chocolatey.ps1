@@ -29,32 +29,34 @@ $chocoScript = 'C:\Windows\Temp\choco.ps1'
 $chocoUrl = 'https://chocolatey.org/install.ps1'
 
 # Logging function
+$script:Component = 'Chocolatey'
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0)]
         [string]$Message,
-        
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    Write-Host "[$timestamp] [$prefix] [Chocolatey] $Message"
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [Chocolatey] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 # Main script execution
 try {
-    Write-Log "Starting Chocolatey installation..."
-    
+    $startTime = Get-Date
+    Write-Log "===== Install_Chocolatey starting ====="
+
     # Check if Chocolatey is already installed
     $chocoCmd = Get-Command choco -ErrorAction SilentlyContinue
     if ($chocoCmd) {
         Write-Log "Chocolatey is already installed at: $($chocoCmd.Source)"
+        Write-Log "===== Install_Chocolatey complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
         exit 0
     }
     
@@ -84,9 +86,14 @@ try {
         Remove-Item $chocoScript -Force -ErrorAction SilentlyContinue
         Write-Log "Cleaned up installation script"
     }
-    
+
+    Write-Log "===== Install_Chocolatey complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
-    Write-Log "Error: $($_.Exception.Message)" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

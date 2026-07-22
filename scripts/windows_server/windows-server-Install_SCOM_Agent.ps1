@@ -85,30 +85,25 @@ $script:InstallationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+$script:Component = 'SCOM'
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    # Ensure log directory exists
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+
+    $line = "[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message
+    Write-Host $line
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [SCOM] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 function Test-IsAdministrator {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -120,12 +115,12 @@ function Test-SCOMAgentInstalled {
     try {
         $service = Get-Service -Name $AgentServiceName -ErrorAction SilentlyContinue
         if ($service) {
-            Write-LogMessage "SCOM Agent service found: $($service.Status)" -Level Info
+            Write-Log "SCOM Agent service found: $($service.Status)" -Level INFO
             return $true
         }
         
         if (Test-Path $AgentRegistryPath) {
-            Write-LogMessage "SCOM Agent registry keys found" -Level Info
+            Write-Log "SCOM Agent registry keys found" -Level INFO
             return $true
         }
         
@@ -137,34 +132,34 @@ function Test-SCOMAgentInstalled {
 }
 
 function Get-SCOMInstallerPath {
-    Write-LogMessage "Validating SCOM installer path..." -Level Info
+    Write-Log "Validating SCOM installer path..." -Level INFO
     
     # Check if installer path provided
     if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
-        Write-LogMessage "No installer path provided" -Level Warning
-        Write-LogMessage "Please provide the path to MOMAgent.msi installer" -Level Warning
-        Write-LogMessage "Download from: System Center Operations Manager installation media" -Level Info
+        Write-Log "No installer path provided" -Level WARN
+        Write-Log "Please provide the path to MOMAgent.msi installer" -Level WARN
+        Write-Log "Download from: System Center Operations Manager installation media" -Level INFO
         return $null
     }
     
     # Check if file exists
     if (-not (Test-Path $InstallerPath)) {
-        Write-LogMessage "Installer not found at: $InstallerPath" -Level Error
+        Write-Log "Installer not found at: $InstallerPath" -Level ERROR
         return $null
     }
     
     # Verify it's an MSI file
     if ([IO.Path]::GetExtension($InstallerPath) -ne '.msi') {
-        Write-LogMessage "Installer must be an MSI file" -Level Error
+        Write-Log "Installer must be an MSI file" -Level ERROR
         return $null
     }
     
-    Write-LogMessage "Installer found: $InstallerPath" -Level Success
+    Write-Log "Installer found: $InstallerPath" -Level INFO
     return $InstallerPath
 }
 
 function Install-SCOMAgent {
-    Write-LogMessage "Installing SCOM Agent..." -Level Info
+    Write-Log "Installing SCOM Agent..." -Level INFO
     
     try {
         # Create temp directory
@@ -208,13 +203,13 @@ function Install-SCOMAgent {
         
         $installArgString = $installArgs -join ' '
         
-        Write-LogMessage "Installation command: msiexec.exe $installArgString" -Level Info
-        Write-LogMessage "Installing SCOM Agent (this may take several minutes)..." -Level Info
+        Write-Log "Installation command: msiexec.exe $installArgString" -Level INFO
+        Write-Log "Installing SCOM Agent (this may take several minutes)..." -Level INFO
         
         $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $installArgString -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
-            Write-LogMessage "SCOM Agent installed successfully (Exit Code: $($process.ExitCode))" -Level Success
+            Write-Log "SCOM Agent installed successfully (Exit Code: $($process.ExitCode))" -Level INFO
             $script:ComponentsInstalled++
             
             # Wait for service to be created
@@ -222,25 +217,25 @@ function Install-SCOMAgent {
             return $true
         }
         else {
-            Write-LogMessage "Installation failed with exit code: $($process.ExitCode)" -Level Error
-            Write-LogMessage "Check installation log: $LogDir\scom-install-$timestamp.log" -Level Error
+            Write-Log "Installation failed with exit code: $($process.ExitCode)" -Level ERROR
+            Write-Log "Check installation log: $LogDir\scom-install-$timestamp.log" -Level ERROR
             $script:InstallationsFailed++
             return $false
         }
     }
     catch {
-        Write-LogMessage "Error during installation: $($_.Exception.Message)" -Level Error
+        Write-Log "Error during installation: $($_.Exception.Message)" -Level ERROR
         $script:InstallationsFailed++
         return $false
     }
 }
 
 function Configure-SCOMAgent {
-    Write-LogMessage "Configuring SCOM Agent..." -Level Info
+    Write-Log "Configuring SCOM Agent..." -Level INFO
     
     if (-not $ManagementServer -or -not $ManagementGroup) {
-        Write-LogMessage "No management server specified, skipping post-install configuration" -Level Warning
-        Write-LogMessage "Agent will need to be configured manually or via GPO" -Level Info
+        Write-Log "No management server specified, skipping post-install configuration" -Level WARN
+        Write-Log "Agent will need to be configured manually or via GPO" -Level INFO
         return $true
     }
     
@@ -253,29 +248,29 @@ function Configure-SCOMAgent {
         $moduleManifest = Join-Path $agentPath "OperationsManager.psd1"
         
         if (Test-Path $moduleManifest) {
-            Write-LogMessage "Loading Operations Manager PowerShell module..." -Level Info
+            Write-Log "Loading Operations Manager PowerShell module..." -Level INFO
             Import-Module $moduleManifest -ErrorAction SilentlyContinue
             
             # Configure management group
             try {
-                Write-LogMessage "Configuring management group: $ManagementGroup" -Level Info
+                Write-Log "Configuring management group: $ManagementGroup" -Level INFO
                 New-SCOMManagementGroupConnection -ComputerName $ManagementServer -ErrorAction Stop
                 
-                Write-LogMessage "Management group configured successfully" -Level Success
+                Write-Log "Management group configured successfully" -Level INFO
                 $script:ConfigurationsApplied++
             }
             catch {
-                Write-LogMessage "Could not configure via PowerShell: $($_.Exception.Message)" -Level Warning
+                Write-Log "Could not configure via PowerShell: $($_.Exception.Message)" -Level WARN
             }
         }
         else {
-            Write-LogMessage "Operations Manager module not found, using registry configuration" -Level Info
+            Write-Log "Operations Manager module not found, using registry configuration" -Level INFO
         }
         
         # Verify service is running
         $service = Get-Service -Name $AgentServiceName -ErrorAction SilentlyContinue
         if ($service -and $service.Status -ne 'Running') {
-            Write-LogMessage "Starting SCOM Agent service..." -Level Info
+            Write-Log "Starting SCOM Agent service..." -Level INFO
             Start-Service -Name $AgentServiceName -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 5
         }
@@ -283,30 +278,30 @@ function Configure-SCOMAgent {
         return $true
     }
     catch {
-        Write-LogMessage "Error during configuration: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error during configuration: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
 
 function Set-SCOMServiceStartup {
-    Write-LogMessage "Configuring SCOM Agent service..." -Level Info
+    Write-Log "Configuring SCOM Agent service..." -Level INFO
     
     try {
         $service = Get-Service -Name $AgentServiceName -ErrorAction SilentlyContinue
         
         if (-not $service) {
-            Write-LogMessage "SCOM Agent service not found" -Level Error
+            Write-Log "SCOM Agent service not found" -Level ERROR
             return $false
         }
         
         if ($DisableService) {
-            Write-LogMessage "Disabling SCOM Agent service (image preparation mode)" -Level Info
+            Write-Log "Disabling SCOM Agent service (image preparation mode)" -Level INFO
             Stop-Service -Name $AgentServiceName -Force -ErrorAction SilentlyContinue
             Set-Service -Name $AgentServiceName -StartupType Disabled
-            Write-LogMessage "SCOM Agent service disabled" -Level Success
+            Write-Log "SCOM Agent service disabled" -Level INFO
         }
         else {
-            Write-LogMessage "Configuring SCOM Agent to start automatically" -Level Info
+            Write-Log "Configuring SCOM Agent to start automatically" -Level INFO
             Set-Service -Name $AgentServiceName -StartupType Automatic
             
             if ($ManagementServer) {
@@ -315,10 +310,10 @@ function Set-SCOMServiceStartup {
                 
                 $serviceStatus = (Get-Service -Name $AgentServiceName).Status
                 if ($serviceStatus -eq 'Running') {
-                    Write-LogMessage "SCOM Agent service started successfully" -Level Success
+                    Write-Log "SCOM Agent service started successfully" -Level INFO
                 }
                 else {
-                    Write-LogMessage "SCOM Agent service configured but not running: $serviceStatus" -Level Warning
+                    Write-Log "SCOM Agent service configured but not running: $serviceStatus" -Level WARN
                 }
             }
         }
@@ -327,19 +322,19 @@ function Set-SCOMServiceStartup {
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring service: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring service: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Set-SCOMFirewallRules {
-    Write-LogMessage "Configuring Windows Firewall rules for SCOM..." -Level Info
+    Write-Log "Configuring Windows Firewall rules for SCOM..." -Level INFO
     
     try {
         # Check if firewall is enabled
         $firewallProfile = Get-NetFirewallProfile -Profile Domain, Public, Private -ErrorAction SilentlyContinue
         if (-not $firewallProfile) {
-            Write-LogMessage "Windows Firewall not available" -Level Warning
+            Write-Log "Windows Firewall not available" -Level WARN
             return $true
         }
         
@@ -348,10 +343,10 @@ function Set-SCOMFirewallRules {
         $existingRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         
         if ($existingRule) {
-            Write-LogMessage "SCOM firewall rule already exists" -Level Info
+            Write-Log "SCOM firewall rule already exists" -Level INFO
         }
         else {
-            Write-LogMessage "Creating SCOM firewall rule..." -Level Info
+            Write-Log "Creating SCOM firewall rule..." -Level INFO
             
             New-NetFirewallRule -DisplayName $ruleName `
                 -Direction Inbound `
@@ -362,43 +357,43 @@ function Set-SCOMFirewallRules {
                 -Description "Allow SCOM Management Server communication" `
                 -ErrorAction SilentlyContinue | Out-Null
             
-            Write-LogMessage "Firewall rule created successfully" -Level Success
+            Write-Log "Firewall rule created successfully" -Level INFO
             $script:ConfigurationsApplied++
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring firewall: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring firewall: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
 
 function Test-SCOMAgentConfiguration {
-    Write-LogMessage "Verifying SCOM Agent installation..." -Level Info
+    Write-Log "Verifying SCOM Agent installation..." -Level INFO
     
     try {
         # Check service
         $service = Get-Service -Name $AgentServiceName -ErrorAction SilentlyContinue
         if ($service) {
-            Write-LogMessage "Service Status: $($service.Status)" -Level Info
-            Write-LogMessage "Service Startup Type: $($service.StartType)" -Level Info
+            Write-Log "Service Status: $($service.Status)" -Level INFO
+            Write-Log "Service Startup Type: $($service.StartType)" -Level INFO
         }
         else {
-            Write-LogMessage "SCOM Agent service not found" -Level Error
+            Write-Log "SCOM Agent service not found" -Level ERROR
             return $false
         }
         
         # Check installation path
         if (Test-Path $InstallPath) {
-            Write-LogMessage "Installation Path: $InstallPath" -Level Info
+            Write-Log "Installation Path: $InstallPath" -Level INFO
         }
         
         # Check registry
         if (Test-Path $AgentRegistryPath) {
             $regValues = Get-ItemProperty -Path $AgentRegistryPath
-            Write-LogMessage "Agent Version: $($regValues.AgentVersion)" -Level Info
-            Write-LogMessage "Install Directory: $($regValues.InstallDirectory)" -Level Info
+            Write-Log "Agent Version: $($regValues.AgentVersion)" -Level INFO
+            Write-Log "Install Directory: $($regValues.InstallDirectory)" -Level INFO
         }
         
         # Check management group configuration
@@ -406,25 +401,25 @@ function Test-SCOMAgentConfiguration {
         if (Test-Path $mgPath) {
             $mgGroups = Get-ChildItem -Path $mgPath -ErrorAction SilentlyContinue
             if ($mgGroups) {
-                Write-LogMessage "Configured Management Groups: $($mgGroups.Count)" -Level Info
+                Write-Log "Configured Management Groups: $($mgGroups.Count)" -Level INFO
                 foreach ($mg in $mgGroups) {
                     $mgName = Split-Path $mg.Name -Leaf
-                    Write-LogMessage "  Management Group: $mgName" -Level Info
+                    Write-Log "  Management Group: $mgName" -Level INFO
                 }
             }
         }
         
-        Write-LogMessage "SCOM Agent verification completed" -Level Success
+        Write-Log "SCOM Agent verification completed" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error during verification: $($_.Exception.Message)" -Level Error
+        Write-Log "Error during verification: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Get-SCOMAgentInfo {
-    Write-LogMessage "Generating SCOM Agent information report..." -Level Info
+    Write-Log "Generating SCOM Agent information report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "scom-agent-info-$timestamp.txt"
@@ -479,11 +474,11 @@ function Get-SCOMAgentInfo {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Agent information report saved to: $reportFile" -Level Success
+        Write-Log "Agent information report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -494,33 +489,28 @@ function Get-SCOMAgentInfo {
 
 function Main {
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "SCOM Agent Installation" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Install_SCOM_Agent starting ====="
+    Write-Log "Log File: $LogFile"
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
     # Check if already installed
     if (Test-SCOMAgentInstalled) {
-        Write-LogMessage "SCOM Agent is already installed" -Level Warning
-        Write-LogMessage "Skipping installation. To reinstall, uninstall the existing agent first." -Level Warning
+        Write-Log "SCOM Agent is already installed" -Level WARN
+        Write-Log "Skipping installation. To reinstall, uninstall the existing agent first." -Level WARN
         exit 0
     }
     
     # Validate installer availability
     if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
-        Write-LogMessage "No installer path provided" -Level Error
-        Write-LogMessage "Usage: .\Install-SCOMAgent.ps1 -InstallerPath 'C:\Path\To\MOMAgent.msi'" -Level Info
-        Write-LogMessage "Download SCOM agent from System Center Operations Manager installation media" -Level Info
+        Write-Log "No installer path provided" -Level ERROR
+        Write-Log "Usage: .\Install-SCOMAgent.ps1 -InstallerPath 'C:\Path\To\MOMAgent.msi'" -Level INFO
+        Write-Log "Download SCOM agent from System Center Operations Manager installation media" -Level INFO
         exit 1
     }
     
@@ -528,7 +518,7 @@ function Main {
     $installSuccess = Install-SCOMAgent
     
     if (-not $installSuccess) {
-        Write-LogMessage "SCOM Agent installation failed" -Level Error
+        Write-Log "SCOM Agent installation failed" -Level ERROR
         exit 1
     }
     
@@ -547,33 +537,16 @@ function Main {
     # Generate report
     Get-SCOMAgentInfo | Out-Null
     
-    # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Installation Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Components Installed: $script:ComponentsInstalled" -Level Info
-    Write-LogMessage "Configurations Applied: $script:ConfigurationsApplied" -Level Info
-    Write-LogMessage "Installation Failures: $script:InstallationsFailed" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
     if ($script:InstallationsFailed -eq 0) {
-        Write-LogMessage "SCOM Agent installation completed successfully!" -Level Success
-        
         if (-not $ManagementServer) {
-            Write-LogMessage "" -Level Info
-            Write-LogMessage "NOTE: Agent installed but not configured" -Level Warning
-            Write-LogMessage "Configure management group manually or via Group Policy" -Level Info
+            Write-Log "NOTE: Agent installed but not configured" -Level WARN
+            Write-Log "Configure management group manually or via Group Policy"
         }
-        
+        Write-Log "===== Install_SCOM_Agent complete in $([int]((Get-Date) - $scriptStartTime).TotalSeconds)s; applied=$script:ConfigurationsApplied failed=$script:InstallationsFailed ====="
         exit 0
     }
     else {
-        Write-LogMessage "Installation completed with errors. Check logs." -Level Warning
+        Write-Log "Installation completed with errors. Check logs." -Level WARN
         exit 1
     }
 }
@@ -583,9 +556,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

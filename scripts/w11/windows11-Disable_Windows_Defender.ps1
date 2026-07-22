@@ -22,6 +22,14 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [Defender] Transcript unavailable: $($_.Exception.Message)" }
+
 function Write-Log {
     param(
         [Parameter(Mandatory)]
@@ -43,12 +51,13 @@ function Write-Log {
 trap {
     Write-Log "Critical error: $_" -Level Error
     ($_.ScriptStackTrace -split '\r?\n') | ForEach-Object { Write-Log "STACK: $_" -Level Error }
-    Write-Log 'Sleeping for 60m to allow investigation...' -Level Error
-    Start-Sleep -Seconds 3600
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
+    $startTime = Get-Date
+    Write-Log "===== Disable_Windows_Defender starting ====="
     Write-Log "Disabling Windows Defender..."
     
     if (Get-Command -Name Uninstall-WindowsFeature -ErrorAction SilentlyContinue) {
@@ -78,3 +87,7 @@ try {
     Write-Log "Failed to disable Windows Defender: $($_.Exception.Message)" -Level Warning
     # Don't exit with error - Defender might already be removed
 }
+
+Write-Log "===== Disable_Windows_Defender complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+try { Stop-Transcript | Out-Null } catch {}
+exit 0

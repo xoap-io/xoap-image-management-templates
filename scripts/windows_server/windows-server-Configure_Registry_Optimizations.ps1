@@ -62,28 +62,17 @@ $script:OptimizationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+# Leveled logging function (stdout is the state channel)
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+    Write-Host "[$timestamp] [$Level] [Registry] $Message"
 }
 
 function Test-IsAdministrator {
@@ -112,21 +101,21 @@ function Set-RegistryValue {
         New-ItemProperty -Path $Path -Name $Name -Value $Value -PropertyType $Type -Force | Out-Null
         
         if ($Description) {
-            Write-LogMessage "  ✓ $Description" -Level Info
+            Write-Log "  [OK] $Description" -Level INFO
         }
         
         $script:OptimizationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Failed to set $Path\$Name : $($_.Exception.Message)" -Level Warning
+        Write-Log "  [FAIL] Failed to set $Path\$Name : $($_.Exception.Message)" -Level WARN
         $script:OptimizationsFailed++
         return $false
     }
 }
 
 function Backup-RegistryKeys {
-    Write-LogMessage "Creating registry backup..." -Level Info
+    Write-Log "Creating registry backup..." -Level INFO
     
     try {
         if (-not (Test-Path $BackupDir)) {
@@ -147,11 +136,11 @@ function Backup-RegistryKeys {
             $result = Start-Process -FilePath "reg.exe" -ArgumentList "export `"$key`" `"$backupFile`" /y" -Wait -PassThru -NoNewWindow -ErrorAction SilentlyContinue
         }
         
-        Write-LogMessage "Registry backup created: $backupFile" -Level Success
+        Write-Log "Registry backup created: $backupFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Registry backup failed: $($_.Exception.Message)" -Level Warning
+        Write-Log "Registry backup failed: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -162,11 +151,11 @@ function Backup-RegistryKeys {
 
 function Set-PerformanceOptimizations {
     if ($SkipPerformance) {
-        Write-LogMessage "Skipping performance optimizations" -Level Info
+        Write-Log "Skipping performance optimizations" -Level INFO
         return
     }
     
-    Write-LogMessage "Applying performance optimizations..." -Level Info
+    Write-Log "Applying performance optimizations..." -Level INFO
     
     # Disable Windows Search indexing for better disk performance
     Set-RegistryValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows Search' -Name 'SetupCompletedSuccessfully' -Value 0 -Description 'Disable Windows Search indexing'
@@ -198,7 +187,7 @@ function Set-PerformanceOptimizations {
     # Disable automatic maintenance
     Set-RegistryValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance' -Name 'MaintenanceDisabled' -Value 1 -Description 'Disable automatic maintenance'
     
-    Write-LogMessage "Performance optimizations completed" -Level Success
+    Write-Log "Performance optimizations completed" -Level INFO
 }
 
 #endregion
@@ -207,11 +196,11 @@ function Set-PerformanceOptimizations {
 
 function Set-SecurityOptimizations {
     if ($SkipSecurity) {
-        Write-LogMessage "Skipping security optimizations" -Level Info
+        Write-Log "Skipping security optimizations" -Level INFO
         return
     }
     
-    Write-LogMessage "Applying security optimizations..." -Level Info
+    Write-Log "Applying security optimizations..." -Level INFO
     
     # Disable LLMNR (security best practice)
     Set-RegistryValue -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' -Name 'EnableMulticast' -Value 0 -Description 'Disable LLMNR'
@@ -249,7 +238,7 @@ function Set-SecurityOptimizations {
     # Set minimum password length in message
     Set-RegistryValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name 'LegalNoticeCaption' -Value 'Notice' -Type String -Description 'Set legal notice caption'
     
-    Write-LogMessage "Security optimizations completed" -Level Success
+    Write-Log "Security optimizations completed" -Level INFO
 }
 
 #endregion
@@ -258,11 +247,11 @@ function Set-SecurityOptimizations {
 
 function Set-UIOptimizations {
     if ($SkipUI) {
-        Write-LogMessage "Skipping UI optimizations" -Level Info
+        Write-Log "Skipping UI optimizations" -Level INFO
         return
     }
     
-    Write-LogMessage "Applying UI optimizations..." -Level Info
+    Write-Log "Applying UI optimizations..." -Level INFO
     
     # Disable Action Center
     Set-RegistryValue -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer' -Name 'DisableNotificationCenter' -Value 1 -Description 'Disable Action Center'
@@ -297,7 +286,7 @@ function Set-UIOptimizations {
     # Set Windows Explorer to open to This PC
     Set-RegistryValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'LaunchTo' -Value 1 -Description 'Open Explorer to This PC'
     
-    Write-LogMessage "UI optimizations completed" -Level Success
+    Write-Log "UI optimizations completed" -Level INFO
 }
 
 #endregion
@@ -306,11 +295,11 @@ function Set-UIOptimizations {
 
 function Set-NetworkingOptimizations {
     if ($SkipNetworking) {
-        Write-LogMessage "Skipping networking optimizations" -Level Info
+        Write-Log "Skipping networking optimizations" -Level INFO
         return
     }
     
-    Write-LogMessage "Applying networking optimizations..." -Level Info
+    Write-Log "Applying networking optimizations..." -Level INFO
     
     # Disable IPv6 components (keep enabled but disable components if needed)
     # Set-RegistryValue -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' -Name 'DisabledComponents' -Value 0xFF -Description 'Disable IPv6 components'
@@ -342,7 +331,7 @@ function Set-NetworkingOptimizations {
     Set-RegistryValue -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters' -Name 'DisableBandwidthThrottling' -Value 1 -Description 'Disable SMB bandwidth throttling'
     Set-RegistryValue -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters' -Name 'DisableLargeMtu' -Value 0 -Description 'Enable large MTU for SMB'
     
-    Write-LogMessage "Networking optimizations completed" -Level Success
+    Write-Log "Networking optimizations completed" -Level INFO
 }
 
 #endregion
@@ -350,7 +339,7 @@ function Set-NetworkingOptimizations {
 #region Additional System Optimizations
 
 function Set-SystemOptimizations {
-    Write-LogMessage "Applying additional system optimizations..." -Level Info
+    Write-Log "Applying additional system optimizations..." -Level INFO
     
     # Disable Customer Experience Improvement Program
     Set-RegistryValue -Path 'HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows' -Name 'CEIPEnable' -Value 0 -Description 'Disable CEIP'
@@ -380,7 +369,7 @@ function Set-SystemOptimizations {
     # Disable Storage Sense
     Set-RegistryValue -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\StorageSense' -Name 'AllowStorageSenseGlobal' -Value 0 -Description 'Disable Storage Sense'
     
-    Write-LogMessage "Additional system optimizations completed" -Level Success
+    Write-Log "Additional system optimizations completed" -Level INFO
 }
 
 #endregion
@@ -388,19 +377,23 @@ function Set-SystemOptimizations {
 #region Main Execution
 
 function Main {
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
+    }
+
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Registry Optimizations for Windows Server" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Configure_Registry_Optimizations starting ====="
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
@@ -417,28 +410,16 @@ function Main {
     Set-SystemOptimizations
     
     # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Optimization Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Optimizations Applied: $script:OptimizationsApplied" -Level Info
-    Write-LogMessage "Optimizations Failed: $script:OptimizationsFailed" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    Write-LogMessage "" -Level Info
-    
+    $duration = ((Get-Date) - $scriptStartTime).TotalSeconds
+
     if ($script:OptimizationsFailed -eq 0) {
-        Write-LogMessage "Registry optimizations completed successfully!" -Level Success
-        Write-LogMessage "NOTE: Some changes may require a system restart to take effect" -Level Warning
-        exit 0
+        Write-Log "NOTE: Some changes may require a system restart to take effect" -Level WARN
     }
     else {
-        Write-LogMessage "Optimizations completed with $script:OptimizationsFailed warnings" -Level Warning
-        exit 0
+        Write-Log "Optimizations completed with $script:OptimizationsFailed warnings" -Level WARN
     }
+    Write-Log "===== Configure_Registry_Optimizations complete in $([int]$duration)s; applied=$($script:OptimizationsApplied) failed=$($script:OptimizationsFailed) ====="
+    exit 0
 }
 
 # Execute main function
@@ -446,9 +427,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

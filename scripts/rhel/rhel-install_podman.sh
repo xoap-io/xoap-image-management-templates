@@ -75,7 +75,7 @@ log_info "Installing Podman packages..."
 PODMAN_PACKAGES="podman buildah skopeo slirp4netns fuse-overlayfs"
 
 if $PKG_MGR install -y $PODMAN_PACKAGES; then
-    log_info "✓ Podman packages installed successfully"
+    log_info "[OK] Podman packages installed successfully"
     ((PACKAGES_INSTALLED++))
 else
     log_error "Failed to install Podman packages"
@@ -102,7 +102,7 @@ if [[ -f "$STORAGE_CONF" ]]; then
     if ! grep -q "^driver = \"overlay\"" "$STORAGE_CONF"; then
         sed -i 's/^driver = .*/driver = "overlay"/' "$STORAGE_CONF" 2>/dev/null || \
             echo 'driver = "overlay"' >> "$STORAGE_CONF"
-        log_info "✓ Storage driver set to overlay"
+        log_info "[OK] Storage driver set to overlay"
     else
         log_info "Storage driver already set to overlay"
     fi
@@ -124,7 +124,7 @@ if [[ -f "$REGISTRIES_CONF" ]]; then
 [[registry]]
 location = "docker.io"
 EOF
-        log_info "✓ Docker Hub registry added"
+        log_info "[OK] Docker Hub registry added"
     else
         log_info "Registries already configured"
     fi
@@ -148,7 +148,7 @@ if [[ -n "$PODMAN_USER" ]]; then
         echo "$PODMAN_USER:$((USER_UID * 65536)):65536" >> /etc/subuid
         echo "$PODMAN_USER:$((USER_UID * 65536)):65536" >> /etc/subgid
         
-        log_info "✓ Subordinate UIDs/GIDs configured"
+        log_info "[OK] Subordinate UIDs/GIDs configured"
     else
         log_info "Subordinate UIDs/GIDs already configured"
     fi
@@ -159,12 +159,12 @@ if [[ -n "$PODMAN_USER" ]]; then
     
     if [[ ! -d "$USER_SYSTEMD_DIR" ]]; then
         sudo -u "$PODMAN_USER" mkdir -p "$USER_SYSTEMD_DIR"
-        log_info "✓ User systemd directory created"
+        log_info "[OK] User systemd directory created"
     fi
     
     # Enable linger for user (allows systemd services to run without login)
     if loginctl enable-linger "$PODMAN_USER" 2>/dev/null; then
-        log_info "✓ Linger enabled for $PODMAN_USER"
+        log_info "[OK] Linger enabled for $PODMAN_USER"
     else
         log_warn "Failed to enable linger for $PODMAN_USER"
     fi
@@ -182,7 +182,7 @@ user.max_user_namespaces = 15000
 EOF
     
     sysctl --system &>/dev/null || log_warn "Failed to reload sysctl"
-    log_info "✓ Kernel parameters configured"
+    log_info "[OK] Kernel parameters configured"
 else
     log_info "Kernel parameters already configured"
 fi
@@ -191,7 +191,7 @@ fi
 log_info "Testing Podman installation..."
 
 if podman info &>/tmp/podman-info.log; then
-    log_info "✓ Podman installation test passed"
+    log_info "[OK] Podman installation test passed"
 else
     log_error "Podman installation test failed"
     cat /tmp/podman-info.log
@@ -202,7 +202,7 @@ fi
 log_info "Running test container..."
 
 if podman run --rm docker.io/hello-world &>/tmp/podman-hello.log; then
-    log_info "✓ Container test passed"
+    log_info "[OK] Container test passed"
 else
     log_warn "Container test failed (may be network related)"
 fi
@@ -218,7 +218,7 @@ log_info "Configuring Podman socket..."
 
 if systemctl list-unit-files | grep -q "podman.socket"; then
     systemctl enable podman.socket
-    log_info "✓ Podman socket enabled"
+    log_info "[OK] Podman socket enabled"
 else
     log_warn "Podman socket unit not available"
 fi
@@ -227,7 +227,7 @@ fi
 if [[ ! -L /usr/bin/docker ]] && [[ ! -f /usr/bin/docker ]]; then
     log_info "Creating Docker compatibility symlink..."
     ln -s /usr/bin/podman /usr/bin/docker
-    log_info "✓ Docker symlink created (podman-docker compatibility)"
+    log_info "[OK] Docker symlink created (podman-docker compatibility)"
 else
     log_info "Docker command already exists"
 fi
@@ -237,7 +237,7 @@ if command -v pip3 &>/dev/null; then
     log_info "Installing podman-compose..."
     
     if pip3 install --quiet podman-compose 2>/dev/null; then
-        log_info "✓ podman-compose installed"
+        log_info "[OK] podman-compose installed"
         COMPOSE_VERSION=$(podman-compose --version 2>/dev/null || echo "unknown")
         log_info "podman-compose version: $COMPOSE_VERSION"
     else

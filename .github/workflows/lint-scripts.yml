@@ -1,0 +1,55 @@
+---
+name: Lint scripts
+
+on:
+  push:
+    branches: [main, master, dev]
+  pull_request:
+    branches: [main, master, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  psscriptanalyzer:
+    name: PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $results = Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          $errors   = @($results | Where-Object Severity -eq 'Error')
+          $warnings = @($results | Where-Object Severity -eq 'Warning')
+          Write-Host "PSScriptAnalyzer: $($errors.Count) error(s), $($warnings.Count) warning(s)"
+          # Warnings are reported for triage but do not fail the build.
+          $warnings | ForEach-Object {
+            Write-Host "::warning file=$($_.ScriptPath),line=$($_.Line)::$($_.RuleName): $($_.Message)"
+          }
+          # Errors block the build.
+          $errors | ForEach-Object {
+            Write-Host "::error file=$($_.ScriptPath),line=$($_.Line)::$($_.RuleName): $($_.Message)"
+          }
+          if ($errors.Count -gt 0) { exit 1 }
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Run ShellCheck (error severity gates the build)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rc=0
+          while IFS= read -r f; do
+            if ! shellcheck --severity=error "$f"; then rc=1; fi
+          done < <(find scripts -name '*.sh')
+          exit $rc

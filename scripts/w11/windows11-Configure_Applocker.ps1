@@ -30,9 +30,12 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $LogDir = 'C:\xoap-logs'
-$scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [AppLocker] Transcript unavailable: $($_.Exception.Message)" }
 
 $script:RulesCreated = 0
 
@@ -52,24 +55,19 @@ function Write-Log {
     }
     $logMessage = "[$timestamp] [$prefix] [AppLocker] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
     Write-Log "Critical error: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
     $startTime = Get-Date
-    
+    Write-Log "===== Configure_Applocker starting ====="
+
     Write-Log "==================================================="
     Write-Log "AppLocker Configuration Script"
     Write-Log "==================================================="
@@ -80,7 +78,7 @@ try {
     Write-Log "Checking AppLocker availability..."
     try {
         $appIdService = Get-Service -Name 'AppIDSvc' -ErrorAction Stop
-        Write-Log "✓ AppLocker service found"
+        Write-Log "[OK] AppLocker service found"
     } catch {
         Write-Log "AppLocker service not found - may not be available on this edition" -Level Error
         throw "AppLocker requires Windows Enterprise or Server edition"
@@ -91,7 +89,7 @@ try {
     try {
         Set-Service -Name 'AppIDSvc' -StartupType Automatic
         Start-Service -Name 'AppIDSvc' -ErrorAction Stop
-        Write-Log "✓ Application Identity service started"
+        Write-Log "[OK] Application Identity service started"
     } catch {
         Write-Log "Error starting AppIDSvc: $($_.Exception.Message)" -Level Warning
     }
@@ -127,7 +125,7 @@ try {
         
         $exeRules | Out-File -FilePath "$env:TEMP\AppLocker-Exe.xml" -Encoding UTF8
         Set-AppLockerPolicy -XmlPolicy "$env:TEMP\AppLocker-Exe.xml" -Merge
-        Write-Log "✓ Executable rules created"
+        Write-Log "[OK] Executable rules created"
         $script:RulesCreated += 3
     } catch {
         Write-Log "Error creating executable rules: $($_.Exception.Message)" -Level Warning
@@ -160,7 +158,7 @@ try {
         
         $msiRules | Out-File -FilePath "$env:TEMP\AppLocker-Msi.xml" -Encoding UTF8
         Set-AppLockerPolicy -XmlPolicy "$env:TEMP\AppLocker-Msi.xml" -Merge
-        Write-Log "✓ Windows Installer rules created"
+        Write-Log "[OK] Windows Installer rules created"
         $script:RulesCreated += 3
     } catch {
         Write-Log "Error creating MSI rules: $($_.Exception.Message)" -Level Warning
@@ -193,7 +191,7 @@ try {
         
         $scriptRules | Out-File -FilePath "$env:TEMP\AppLocker-Script.xml" -Encoding UTF8
         Set-AppLockerPolicy -XmlPolicy "$env:TEMP\AppLocker-Script.xml" -Merge
-        Write-Log "✓ Script rules created"
+        Write-Log "[OK] Script rules created"
         $script:RulesCreated += 3
     } catch {
         Write-Log "Error creating script rules: $($_.Exception.Message)" -Level Warning
@@ -226,7 +224,7 @@ try {
         
         $dllRules | Out-File -FilePath "$env:TEMP\AppLocker-Dll.xml" -Encoding UTF8
         Set-AppLockerPolicy -XmlPolicy "$env:TEMP\AppLocker-Dll.xml" -Merge
-        Write-Log "✓ DLL rules created (audit mode only)"
+        Write-Log "[OK] DLL rules created (audit mode only)"
         $script:RulesCreated += 3
     } catch {
         Write-Log "Error creating DLL rules: $($_.Exception.Message)" -Level Warning
@@ -248,7 +246,7 @@ try {
                 $log = Get-WinEvent -ListLog $logName -ErrorAction Stop
                 $log.IsEnabled = $true
                 $log.SaveChanges()
-                Write-Log "  ✓ Enabled: $logName"
+                Write-Log "  [OK] Enabled: $logName"
             } catch {
                 Write-Log "  Could not enable: $logName" -Level Warning
             }
@@ -297,10 +295,13 @@ try {
         Write-Log "Monitor AppLocker logs before enforcing policies"
         Write-Log "Event Viewer: Applications and Services Logs > Microsoft > Windows > AppLocker"
     }
-    
+
+    Write-Log "===== Configure_Applocker complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Script execution failed: $_" -Level Error
     exit 1
 } finally {
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
 }

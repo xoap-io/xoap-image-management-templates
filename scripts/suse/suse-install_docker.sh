@@ -75,7 +75,7 @@ done
 log_info "Installing required packages..."
 
 if zypper install -y ca-certificates curl; then
-    log_info "✓ Required packages installed"
+    log_info "[OK] Required packages installed"
     ((PACKAGES_INSTALLED++))
 else
     log_error "Failed to install required packages"
@@ -113,7 +113,7 @@ zypper addrepo "$REPO_URL" docker-ce-stable
 # Import Docker GPG key
 rpm --import https://download.docker.com/linux/sles/gpg
 
-log_info "✓ Docker repository added"
+log_info "[OK] Docker repository added"
 ((PACKAGES_INSTALLED++))
 
 # Refresh repositories
@@ -124,7 +124,7 @@ log_info "Installing Docker CE..."
 
 if [[ "$DOCKER_VERSION" == "latest" ]]; then
     if zypper install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
-        log_info "✓ Docker CE installed successfully"
+        log_info "[OK] Docker CE installed successfully"
         ((PACKAGES_INSTALLED++))
     else
         log_error "Failed to install Docker CE"
@@ -133,7 +133,7 @@ if [[ "$DOCKER_VERSION" == "latest" ]]; then
 else
     if zypper install -y "docker-ce-${DOCKER_VERSION}" "docker-ce-cli-${DOCKER_VERSION}" \
                            containerd.io docker-buildx-plugin docker-compose-plugin; then
-        log_info "✓ Docker CE $DOCKER_VERSION installed successfully"
+        log_info "[OK] Docker CE $DOCKER_VERSION installed successfully"
         ((PACKAGES_INSTALLED++))
     else
         log_error "Failed to install Docker CE $DOCKER_VERSION"
@@ -163,7 +163,7 @@ cat > "$DAEMON_CONFIG" <<'EOF'
 }
 EOF
 
-log_info "✓ Docker daemon configured"
+log_info "[OK] Docker daemon configured"
 ((PACKAGES_INSTALLED++))
 
 # Enable and start Docker service
@@ -176,7 +176,7 @@ systemctl start docker
 sleep 3
 
 if systemctl is-active --quiet docker; then
-    log_info "✓ Docker service is running"
+    log_info "[OK] Docker service is running"
 else
     log_error "Docker service failed to start"
     systemctl status docker --no-pager
@@ -187,7 +187,7 @@ fi
 log_info "Testing Docker installation..."
 
 if docker run --rm hello-world &>/tmp/docker-hello-world.log; then
-    log_info "✓ Docker installation test passed"
+    log_info "[OK] Docker installation test passed"
 else
     log_error "Docker installation test failed"
     cat /tmp/docker-hello-world.log

@@ -67,7 +67,13 @@ $ProgressPreference = 'SilentlyContinue'
 $LogDir = 'C:\xoap-logs'
 $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [WindowsUpdate] Transcript unavailable: $($_.Exception.Message)" }
 
 # Statistics tracking
 $script:UpdatesInstalled = 0
@@ -84,14 +90,14 @@ function Write-LogMessage {
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+    $levelTag = switch ($Level) {
+        'Warning' { 'WARN' }
+        'Error'   { 'ERROR' }
+        'Success' { 'INFO' }
+        default   { 'INFO' }
     }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
+    $logMessage = "[$timestamp] [$levelTag] [WindowsUpdate] $Message"
+
     switch ($Level) {
         'Error'   { Write-Host $logMessage -ForegroundColor Red }
         'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
@@ -110,13 +116,13 @@ function Install-PSWindowsUpdate {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue
             Install-Module -Name PSWindowsUpdate -Force -SkipPublisherCheck
-            Write-LogMessage "✓ PSWindowsUpdate module installed successfully" -Level Success
+            Write-LogMessage "[OK] PSWindowsUpdate module installed successfully" -Level Success
         } catch {
             Write-LogMessage "Failed to install PSWindowsUpdate: $($_.Exception.Message)" -Level Error
             throw
         }
     } else {
-        Write-LogMessage "✓ PSWindowsUpdate module is already installed"
+        Write-LogMessage "[OK] PSWindowsUpdate module is already installed"
     }
     
     Import-Module PSWindowsUpdate -ErrorAction Stop
@@ -127,6 +133,8 @@ function Install-PSWindowsUpdate {
 #region Main Script
 
 try {
+    $startTime = Get-Date
+    Write-LogMessage "===== Install_Windows_Updates starting ====="
     Write-LogMessage "=============================================="
     Write-LogMessage "Windows 10/11 Updates Installation Script"
     Write-LogMessage "=============================================="
@@ -170,6 +178,7 @@ try {
     
     if ($updates.Count -eq 0) {
         Write-LogMessage "No updates available to install" -Level Success
+        Write-LogMessage "===== Install_Windows_Updates complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
         exit 0
     }
     
@@ -180,10 +189,10 @@ try {
             Write-LogMessage "Installing: $($update.Title)"
             Install-WindowsUpdate -KBArticleID $update.KB -AcceptAll -IgnoreReboot
             $script:UpdatesInstalled++
-            Write-LogMessage "✓ Installed: $($update.Title)" -Level Success
+            Write-LogMessage "[OK] Installed: $($update.Title)" -Level Success
         } catch {
             $script:UpdatesFailed++
-            Write-LogMessage "✗ Failed to install: $($update.Title) - $($_.Exception.Message)" -Level Error
+            Write-LogMessage "[FAIL] Failed to install: $($update.Title) - $($_.Exception.Message)" -Level Error
         }
     }
     
@@ -197,17 +206,22 @@ try {
     
     if ($AutoReboot -and (Get-WURebootStatus -Silent)) {
         Write-LogMessage "System requires reboot. Restarting..." -Level Warning
+        try { Stop-Transcript | Out-Null } catch {}
         Restart-Computer -Force
     } elseif (Get-WURebootStatus -Silent) {
         Write-LogMessage "System requires reboot. Please restart manually." -Level Warning
     }
-    
+
     Write-LogMessage "Windows updates installation completed successfully" -Level Success
-    
+    Write-LogMessage "===== Install_Windows_Updates complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-LogMessage "Critical error during Windows updates installation: $($_.Exception.Message)" -Level Error
     Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

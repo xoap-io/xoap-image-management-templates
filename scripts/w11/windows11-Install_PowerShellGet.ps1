@@ -41,8 +41,18 @@ function Write-Log {
     Write-Host "[$timestamp] [$prefix] [PSGet] $Message"
 }
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [PSGet] Transcript unavailable: $($_.Exception.Message)" }
+
 # Main script execution
 try {
+    $startTime = Get-Date
+    Write-Log '===== Install_PowerShellGet starting ====='
     Write-Log "Starting PowerShellGet installation..."
     
     # Set execution policy
@@ -73,9 +83,14 @@ try {
     }
     
     Write-Log "PowerShellGet installation completed successfully"
-    
+
+    Write-Log "===== Install_PowerShellGet complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Error: $($_.Exception.Message)" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

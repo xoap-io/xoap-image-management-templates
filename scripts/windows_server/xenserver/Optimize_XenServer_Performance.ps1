@@ -37,7 +37,7 @@
     Applies optimizations except power settings
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -53,9 +53,12 @@ $ProgressPreference = 'SilentlyContinue'
 
 # Configuration
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'xenserver-optimize'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [XenOpt] Transcript unavailable: $($_.Exception.Message)" }
 
 # Statistics tracking
 $script:OptimizationsApplied = 0
@@ -66,25 +69,20 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [XenOpt] $Message"
+    $logMessage = "[$timestamp] [$Level] [XenOpt] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 # Error handler
 trap {
-    Write-Log "Critical error: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -96,6 +94,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Optimize_XenServer_Performance starting ====="
     
     Write-Log "========================================================="
     Write-Log "XenServer Performance Optimization"
@@ -111,11 +110,11 @@ try {
     $manufacturer = (Get-WmiObject -Class Win32_ComputerSystem).Manufacturer
     
     if ($manufacturer -like '*Xen*' -or $manufacturer -like '*Citrix*') {
-        Write-Log "✓ XenServer/Citrix Hypervisor detected"
+        Write-Log "[OK] XenServer/Citrix Hypervisor detected"
         $isXenServer = $true
     }
     else {
-        Write-Log "Warning: XenServer not detected. Manufacturer: $manufacturer" -Level Warning
+        Write-Log "Warning: XenServer not detected. Manufacturer: $manufacturer" -Level WARN
         Write-Log "Continuing with optimizations anyway..."
     }
     
@@ -134,24 +133,24 @@ try {
             
             if ($highPerf) {
                 powercfg /setactive $highPerf
-                Write-Log "✓ Set power plan to High Performance"
+                Write-Log "[OK] Set power plan to High Performance"
                 $script:OptimizationsApplied++
             }
             
             # Disable hibernate
             powercfg /hibernate off
-            Write-Log "✓ Disabled hibernation"
+            Write-Log "[OK] Disabled hibernation"
             $script:OptimizationsApplied++
             
             # Disable sleep timeout
             powercfg /change standby-timeout-ac 0
             powercfg /change standby-timeout-dc 0
-            Write-Log "✓ Disabled sleep timeouts"
+            Write-Log "[OK] Disabled sleep timeouts"
             $script:OptimizationsApplied++
             
         }
         catch {
-            Write-Log "Power optimization failed: $($_.Exception.Message)" -Level Warning
+            Write-Log "Power optimization failed: $($_.Exception.Message)" -Level WARN
             $script:OptimizationsFailed++
         }
     }
@@ -175,19 +174,19 @@ try {
             
             foreach ($opt in $tcpOptimizations.GetEnumerator()) {
                 Set-ItemProperty -Path $tcpipPath -Name $opt.Key -Value $opt.Value -Type DWord -Force
-                Write-Log "✓ Set $($opt.Key) = $($opt.Value)"
+                Write-Log "[OK] Set $($opt.Key) = $($opt.Value)"
                 $script:OptimizationsApplied++
             }
             
             # Disable IPv6 (optional - can improve performance)
             Get-NetAdapterBinding -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue | 
                 Disable-NetAdapterBinding -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue
-            Write-Log "✓ Disabled IPv6"
+            Write-Log "[OK] Disabled IPv6"
             $script:OptimizationsApplied++
             
         }
         catch {
-            Write-Log "Network optimization failed: $($_.Exception.Message)" -Level Warning
+            Write-Log "Network optimization failed: $($_.Exception.Message)" -Level WARN
             $script:OptimizationsFailed++
         }
     }
@@ -201,23 +200,23 @@ try {
             # Disable defragmentation schedule
             Get-ScheduledTask -TaskName "*defrag*" -ErrorAction SilentlyContinue | 
                 Disable-ScheduledTask -ErrorAction SilentlyContinue
-            Write-Log "✓ Disabled scheduled defragmentation"
+            Write-Log "[OK] Disabled scheduled defragmentation"
             $script:OptimizationsApplied++
             
             # Optimize disk timeout
             $diskPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Disk'
             Set-ItemProperty -Path $diskPath -Name 'TimeOutValue' -Value 60 -Type DWord -Force
-            Write-Log "✓ Set disk timeout to 60 seconds"
+            Write-Log "[OK] Set disk timeout to 60 seconds"
             $script:OptimizationsApplied++
             
             # Disable System Restore
             Disable-ComputerRestore -Drive "$env:SystemDrive" -ErrorAction SilentlyContinue
-            Write-Log "✓ Disabled System Restore"
+            Write-Log "[OK] Disabled System Restore"
             $script:OptimizationsApplied++
             
         }
         catch {
-            Write-Log "Storage optimization failed: $($_.Exception.Message)" -Level Warning
+            Write-Log "Storage optimization failed: $($_.Exception.Message)" -Level WARN
             $script:OptimizationsFailed++
         }
     }
@@ -241,18 +240,18 @@ try {
                 try {
                     Set-Service -Name $service -StartupType Disabled -ErrorAction Stop
                     Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
-                    Write-Log "✓ Disabled service: $service"
+                    Write-Log "[OK] Disabled service: $service"
                     $script:OptimizationsApplied++
                 }
                 catch {
-                    Write-Log "Failed to disable $service : $($_.Exception.Message)" -Level Warning
+                    Write-Log "Failed to disable $service : $($_.Exception.Message)" -Level WARN
                 }
             }
         }
         
     }
     catch {
-        Write-Log "Service optimization failed: $($_.Exception.Message)" -Level Warning
+        Write-Log "Service optimization failed: $($_.Exception.Message)" -Level WARN
         $script:OptimizationsFailed++
     }
     
@@ -265,7 +264,7 @@ try {
         
         # Disable paging executive
         Set-ItemProperty -Path $mmPath -Name 'DisablePagingExecutive' -Value 1 -Type DWord -Force
-        Write-Log "✓ Disabled paging executive"
+        Write-Log "[OK] Disabled paging executive"
         $script:OptimizationsApplied++
         
         # Clear page file at shutdown (optional - slower shutdown)
@@ -275,12 +274,12 @@ try {
         $multiPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
         Set-ItemProperty -Path $multiPath -Name 'SystemResponsiveness' -Value 0 -Type DWord -Force
         Set-ItemProperty -Path $multiPath -Name 'NetworkThrottlingIndex' -Value 4294967295 -Type DWord -Force
-        Write-Log "✓ Optimized system responsiveness"
+        Write-Log "[OK] Optimized system responsiveness"
         $script:OptimizationsApplied++
         
     }
     catch {
-        Write-Log "Memory/processor optimization failed: $($_.Exception.Message)" -Level Warning
+        Write-Log "Memory/processor optimization failed: $($_.Exception.Message)" -Level WARN
         $script:OptimizationsFailed++
     }
     
@@ -294,12 +293,12 @@ try {
             New-Item -Path $visualPath -Force | Out-Null
         }
         Set-ItemProperty -Path $visualPath -Name 'VisualFXSetting' -Value 2 -Type DWord -Force
-        Write-Log "✓ Set visual effects to performance mode"
+        Write-Log "[OK] Set visual effects to performance mode"
         $script:OptimizationsApplied++
         
     }
     catch {
-        Write-Log "Visual effects optimization failed: $($_.Exception.Message)" -Level Warning
+        Write-Log "Visual effects optimization failed: $($_.Exception.Message)" -Level WARN
         $script:OptimizationsFailed++
     }
     
@@ -320,8 +319,12 @@ try {
     Write-Log ""
     Write-Log "Note: A system restart is recommended for all changes to take effect."
     
+    Write-Log "===== Optimize_XenServer_Performance complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Optimization failed: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Optimization failed: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

@@ -71,29 +71,17 @@ $script:ConfigurationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+# Leveled logging function (stdout is the state channel)
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    # Ensure log directory exists
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+    Write-Host "[$timestamp] [$Level] [SNMP] $Message"
 }
 
 function Test-IsAdministrator {
@@ -103,23 +91,23 @@ function Test-IsAdministrator {
 }
 
 function Install-SNMPFeature {
-    Write-LogMessage "Checking SNMP Service installation..." -Level Info
+    Write-Log "Checking SNMP Service installation..." -Level INFO
     
     try {
         $snmpService = Get-Service -Name "SNMP" -ErrorAction SilentlyContinue
         
         if ($snmpService) {
-            Write-LogMessage "SNMP Service is already installed" -Level Info
+            Write-Log "SNMP Service is already installed" -Level INFO
             return $true
         }
         
-        Write-LogMessage "Installing SNMP Service feature..." -Level Info
+        Write-Log "Installing SNMP Service feature..." -Level INFO
         
         # Install using DISM
         $result = Start-Process -FilePath "dism.exe" -ArgumentList "/online /enable-feature /featurename:SNMP /all /quiet /norestart" -Wait -PassThru -NoNewWindow
         
         if ($result.ExitCode -eq 0 -or $result.ExitCode -eq 3010) {
-            Write-LogMessage "SNMP Service installed successfully" -Level Success
+            Write-Log "SNMP Service installed successfully" -Level INFO
             $script:ComponentsInstalled++
             
             # Wait for service to be available
@@ -127,26 +115,26 @@ function Install-SNMPFeature {
             return $true
         }
         else {
-            Write-LogMessage "SNMP installation failed with exit code: $($result.ExitCode)" -Level Error
+            Write-Log "SNMP installation failed with exit code: $($result.ExitCode)" -Level ERROR
             
             # Try Windows capability method
-            Write-LogMessage "Attempting alternative installation method..." -Level Info
+            Write-Log "Attempting alternative installation method..." -Level INFO
             Add-WindowsCapability -Online -Name "SNMP.Client~~~~0.0.1.0" -ErrorAction Stop
             
-            Write-LogMessage "SNMP installed via Windows Capability" -Level Success
+            Write-Log "SNMP installed via Windows Capability" -Level INFO
             $script:ComponentsInstalled++
             return $true
         }
     }
     catch {
-        Write-LogMessage "Error installing SNMP: $($_.Exception.Message)" -Level Error
+        Write-Log "Error installing SNMP: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Set-SNMPCommunities {
-    Write-LogMessage "Configuring SNMP communities..." -Level Info
+    Write-Log "Configuring SNMP communities..." -Level INFO
     
     try {
         # Create ValidCommunities registry key if it doesn't exist
@@ -167,22 +155,22 @@ function Set-SNMPCommunities {
             }
             
             New-ItemProperty -Path $SNMPCommunitiesPath -Name $communityName -Value $permissionValue -PropertyType DWord -Force | Out-Null
-            Write-LogMessage "Added community: $communityName ($permission)" -Level Info
+            Write-Log "Added community: $communityName ($permission)" -Level INFO
         }
         
-        Write-LogMessage "SNMP communities configured successfully" -Level Success
+        Write-Log "SNMP communities configured successfully" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring communities: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring communities: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Set-SNMPPermittedManagers {
-    Write-LogMessage "Configuring permitted SNMP managers..." -Level Info
+    Write-Log "Configuring permitted SNMP managers..." -Level INFO
     
     try {
         # Create PermittedManagers registry key if it doesn't exist
@@ -193,35 +181,35 @@ function Set-SNMPPermittedManagers {
         # If no managers specified, accept from any host
         if ($PermittedManagers.Count -eq 0) {
             New-ItemProperty -Path $SNMPPermittedPath -Name "1" -Value "0.0.0.0" -PropertyType String -Force | Out-Null
-            Write-LogMessage "Configured to accept SNMP requests from any host (0.0.0.0)" -Level Warning
+            Write-Log "Configured to accept SNMP requests from any host (0.0.0.0)" -Level WARN
         }
         else {
             # Add each permitted manager
             $index = 1
             foreach ($manager in $PermittedManagers) {
                 New-ItemProperty -Path $SNMPPermittedPath -Name $index.ToString() -Value $manager -PropertyType String -Force | Out-Null
-                Write-LogMessage "Added permitted manager: $manager" -Level Info
+                Write-Log "Added permitted manager: $manager" -Level INFO
                 $index++
             }
         }
         
-        Write-LogMessage "Permitted managers configured successfully" -Level Success
+        Write-Log "Permitted managers configured successfully" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring permitted managers: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring permitted managers: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Set-SNMPTraps {
-    Write-LogMessage "Configuring SNMP traps..." -Level Info
+    Write-Log "Configuring SNMP traps..." -Level INFO
     
     try {
         if ($TrapDestinations.Count -eq 0) {
-            Write-LogMessage "No trap destinations specified, skipping trap configuration" -Level Info
+            Write-Log "No trap destinations specified, skipping trap configuration" -Level INFO
             return $true
         }
         
@@ -236,23 +224,23 @@ function Set-SNMPTraps {
         $index = 1
         foreach ($destination in $TrapDestinations) {
             New-ItemProperty -Path $trapPath -Name $index.ToString() -Value $destination -PropertyType String -Force | Out-Null
-            Write-LogMessage "Added trap destination: $destination" -Level Info
+            Write-Log "Added trap destination: $destination" -Level INFO
             $index++
         }
         
-        Write-LogMessage "SNMP traps configured successfully" -Level Success
+        Write-Log "SNMP traps configured successfully" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring traps: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring traps: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Set-SNMPServiceInfo {
-    Write-LogMessage "Configuring SNMP service information..." -Level Info
+    Write-Log "Configuring SNMP service information..." -Level INFO
     
     try {
         # Set contact and location
@@ -263,38 +251,38 @@ function Set-SNMPServiceInfo {
         $servicesValue = 79  # All services: Physical, Applications, Datalink/Subnetwork, Internet, End-to-End
         Set-ItemProperty -Path $SNMPParametersPath -Name "EnableAuthenticationTraps" -Value 1 -Type DWord -Force
         
-        Write-LogMessage "Contact: $ContactInfo" -Level Info
-        Write-LogMessage "Location: $Location" -Level Info
-        Write-LogMessage "SNMP service information configured successfully" -Level Success
+        Write-Log "Contact: $ContactInfo" -Level INFO
+        Write-Log "Location: $Location" -Level INFO
+        Write-Log "SNMP service information configured successfully" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring service information: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring service information: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Set-SNMPServiceStartup {
-    Write-LogMessage "Configuring SNMP service startup..." -Level Info
+    Write-Log "Configuring SNMP service startup..." -Level INFO
     
     try {
         $service = Get-Service -Name "SNMP" -ErrorAction SilentlyContinue
         
         if (-not $service) {
-            Write-LogMessage "SNMP service not found" -Level Error
+            Write-Log "SNMP service not found" -Level ERROR
             return $false
         }
         
         if ($DisableService) {
-            Write-LogMessage "Disabling SNMP service (image preparation mode)" -Level Info
+            Write-Log "Disabling SNMP service (image preparation mode)" -Level INFO
             Stop-Service -Name "SNMP" -Force -ErrorAction SilentlyContinue
             Set-Service -Name "SNMP" -StartupType Disabled
-            Write-LogMessage "SNMP service disabled" -Level Success
+            Write-Log "SNMP service disabled" -Level INFO
         }
         else {
-            Write-LogMessage "Configuring SNMP service to start automatically" -Level Info
+            Write-Log "Configuring SNMP service to start automatically" -Level INFO
             Set-Service -Name "SNMP" -StartupType Automatic
             Start-Service -Name "SNMP" -ErrorAction SilentlyContinue
             
@@ -302,10 +290,10 @@ function Set-SNMPServiceStartup {
             
             $serviceStatus = (Get-Service -Name "SNMP").Status
             if ($serviceStatus -eq 'Running') {
-                Write-LogMessage "SNMP service started successfully" -Level Success
+                Write-Log "SNMP service started successfully" -Level INFO
             }
             else {
-                Write-LogMessage "SNMP service configured but not running: $serviceStatus" -Level Warning
+                Write-Log "SNMP service configured but not running: $serviceStatus" -Level WARN
             }
         }
         
@@ -313,24 +301,24 @@ function Set-SNMPServiceStartup {
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring service startup: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring service startup: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Test-SNMPConfiguration {
-    Write-LogMessage "Verifying SNMP configuration..." -Level Info
+    Write-Log "Verifying SNMP configuration..." -Level INFO
     
     try {
         # Check service
         $service = Get-Service -Name "SNMP" -ErrorAction SilentlyContinue
         if ($service) {
-            Write-LogMessage "SNMP Service Status: $($service.Status)" -Level Info
-            Write-LogMessage "SNMP Service Startup Type: $($service.StartType)" -Level Info
+            Write-Log "SNMP Service Status: $($service.Status)" -Level INFO
+            Write-Log "SNMP Service Startup Type: $($service.StartType)" -Level INFO
         }
         else {
-            Write-LogMessage "SNMP service not found" -Level Error
+            Write-Log "SNMP service not found" -Level ERROR
             return $false
         }
         
@@ -338,31 +326,31 @@ function Test-SNMPConfiguration {
         if (Test-Path $SNMPCommunitiesPath) {
             $communities = Get-ItemProperty -Path $SNMPCommunitiesPath
             $communityCount = ($communities.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' }).Count
-            Write-LogMessage "Configured communities: $communityCount" -Level Info
+            Write-Log "Configured communities: $communityCount" -Level INFO
         }
         
         if (Test-Path $SNMPPermittedPath) {
             $managers = Get-ItemProperty -Path $SNMPPermittedPath
             $managerCount = ($managers.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' }).Count
-            Write-LogMessage "Permitted managers: $managerCount" -Level Info
+            Write-Log "Permitted managers: $managerCount" -Level INFO
         }
         
         # Check contact and location
         $params = Get-ItemProperty -Path $SNMPParametersPath
-        Write-LogMessage "Contact: $($params.sysContact)" -Level Info
-        Write-LogMessage "Location: $($params.sysLocation)" -Level Info
+        Write-Log "Contact: $($params.sysContact)" -Level INFO
+        Write-Log "Location: $($params.sysLocation)" -Level INFO
         
-        Write-LogMessage "SNMP configuration verified successfully" -Level Success
+        Write-Log "SNMP configuration verified successfully" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error during verification: $($_.Exception.Message)" -Level Error
+        Write-Log "Error during verification: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Get-SNMPConfigurationReport {
-    Write-LogMessage "Generating SNMP configuration report..." -Level Info
+    Write-Log "Generating SNMP configuration report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "snmp-config-$timestamp.txt"
@@ -425,11 +413,11 @@ function Get-SNMPConfigurationReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Configuration report saved to: $reportFile" -Level Success
+        Write-Log "Configuration report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -439,19 +427,23 @@ function Get-SNMPConfigurationReport {
 #region Main Execution
 
 function Main {
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
+    }
+
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "SNMP Service Configuration" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Configure_SNMP starting ====="
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
@@ -459,7 +451,7 @@ function Main {
     $installSuccess = Install-SNMPFeature
     
     if (-not $installSuccess) {
-        Write-LogMessage "SNMP installation failed. Exiting." -Level Error
+        Write-Log "SNMP installation failed. Exiting." -Level ERROR
         exit 1
     }
     
@@ -477,25 +469,14 @@ function Main {
     Get-SNMPConfigurationReport | Out-Null
     
     # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configuration Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Components Installed: $script:ComponentsInstalled" -Level Info
-    Write-LogMessage "Configurations Applied: $script:ConfigurationsApplied" -Level Info
-    Write-LogMessage "Configuration Failures: $script:ConfigurationsFailed" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
+    $duration = ((Get-Date) - $scriptStartTime).TotalSeconds
+
     if ($script:ConfigurationsFailed -eq 0) {
-        Write-LogMessage "SNMP configuration completed successfully!" -Level Success
+        Write-Log "===== Configure_SNMP complete in $([int]$duration)s; installed=$($script:ComponentsInstalled) applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) ====="
         exit 0
     }
     else {
-        Write-LogMessage "Configuration completed with errors. Check logs." -Level Warning
+        Write-Log "===== Configure_SNMP complete in $([int]$duration)s; installed=$($script:ComponentsInstalled) applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) =====" -Level WARN
         exit 1
     }
 }
@@ -505,9 +486,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

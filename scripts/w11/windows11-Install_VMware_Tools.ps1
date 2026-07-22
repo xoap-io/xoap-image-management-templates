@@ -36,12 +36,6 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-# Configuration
-$LogDir = 'C:\xoap-logs'
-$scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
-
 # Logging function
 function Write-Log {
     param(
@@ -50,7 +44,7 @@ function Write-Log {
         [ValidateSet('Info', 'Warning', 'Error')]
         [string]$Level = 'Info'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     $prefix = switch ($Level) {
         'Warning' { 'WARN' }
@@ -59,33 +53,32 @@ function Write-Log {
     }
     $logMessage = "[$timestamp] [$prefix] [VMware] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [VMware] Transcript unavailable: $($_.Exception.Message)" }
 
 # Error handler
 trap {
     Write-Log "Critical error: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 # Main execution
 try {
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
     $startTime = Get-Date
-    
-    Write-Log "==================================================="
+    Write-Log "===== Install_VMware_Tools starting ====="
     Write-Log "VMware Tools Installation Script"
-    Write-Log "==================================================="
     Write-Log "Disable Copy/Paste: $DisableCopyPaste"
     Write-Log "Disable Drag/Drop: $DisableDragDrop"
-    Write-Log ""
-    
+
     # Detect virtualization platform
     Write-Log "Detecting virtualization platform..."
     $isVMware = $false
@@ -100,7 +93,7 @@ try {
         
         if ($manufacturer -match 'VMware' -or $model -match 'VMware') {
             $isVMware = $true
-            Write-Log "✓ Running on VMware platform"
+            Write-Log "[OK] Running on VMware platform"
         } else {
             Write-Log "Not running on VMware platform" -Level Warning
             Write-Log "Continuing installation anyway..."
@@ -155,7 +148,7 @@ try {
                 
                 $vmToolsService = Get-Service -Name 'VMTools' -ErrorAction SilentlyContinue
                 if ($vmToolsService) {
-                    Write-Log "✓ VMware Tools installed successfully"
+                    Write-Log "[OK] VMware Tools installed successfully"
                     $installerFound = $true
                     break
                 }
@@ -169,7 +162,7 @@ try {
                 
                 $vmToolsService = Get-Service -Name 'VMTools' -ErrorAction SilentlyContinue
                 if ($vmToolsService) {
-                    Write-Log "✓ VMware Tools installed successfully"
+                    Write-Log "[OK] VMware Tools installed successfully"
                     $installerFound = $true
                     break
                 }
@@ -232,18 +225,18 @@ enableGuestToHostDragDrop = false
     
     # Write configuration
     Set-Content -Path $vmToolsConfigPath -Value $configContent -Force
-    Write-Log "✓ VMware Tools configuration updated"
+    Write-Log "[OK] VMware Tools configuration updated"
     
     # Enable and start service
     if ($vmToolsService) {
         if ($vmToolsService.StartType -ne 'Automatic') {
             Set-Service -Name 'VMTools' -StartupType Automatic
-            Write-Log "✓ VMware Tools service set to automatic startup"
+            Write-Log "[OK] VMware Tools service set to automatic startup"
         }
         
         if ($vmToolsService.Status -ne 'Running') {
             Start-Service -Name 'VMTools'
-            Write-Log "✓ VMware Tools service started"
+            Write-Log "[OK] VMware Tools service started"
         }
     }
     
@@ -255,7 +248,7 @@ enableGuestToHostDragDrop = false
             Write-Log "Memory balloon driver present: $($balloonService.Status)"
             if ($balloonService.Status -ne 'Running') {
                 Start-Service -Name 'vmmemctl'
-                Write-Log "✓ Memory balloon driver started"
+                Write-Log "[OK] Memory balloon driver started"
             }
         } else {
             Write-Log "Memory balloon driver not found (this is normal for some VMware Tools versions)"
@@ -265,26 +258,18 @@ enableGuestToHostDragDrop = false
     }
     
     # Summary
-    $endTime = Get-Date
-    $duration = ($endTime - $startTime).TotalSeconds
-    
-    Write-Log ""
-    Write-Log "==================================================="
-    Write-Log "VMware Tools Installation Summary"
-    Write-Log "==================================================="
     Write-Log "Platform: $(if ($isVMware) { 'VMware' } else { 'Non-VMware' })"
-    Write-Log "VMware Tools: $(if ($vmToolsService) { '✓ Installed' } else { '✗ Not installed' })"
+    Write-Log "VMware Tools: $(if ($vmToolsService) { '[OK] Installed' } else { '[FAIL] Not installed' })"
     Write-Log "Service Status: $(if ($vmToolsService) { $vmToolsService.Status } else { 'N/A' })"
     Write-Log "Copy/Paste: $(if ($DisableCopyPaste) { 'Disabled' } else { 'Enabled' })"
     Write-Log "Drag/Drop: $(if ($DisableDragDrop) { 'Disabled' } else { 'Enabled' })"
     Write-Log "Configuration: $vmToolsConfigPath"
-    Write-Log "Execution time: $([math]::Round($duration, 2))s"
-    Write-Log "==================================================="
-    Write-Log "VMware Tools installation completed!"
-    
+    Write-Log "===== Install_VMware_Tools complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Script execution failed: $_" -Level Error
     exit 1
 } finally {
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
 }

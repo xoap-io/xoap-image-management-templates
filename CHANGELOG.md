@@ -17,16 +17,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hypervisor-specific optimization scripts (VMware, Hyper-V, Proxmox, Nutanix, XenServer)
 - Pre-commit hook exclusion for autounattend XML files
 - Enhanced main README with platform support details
+- Windows 11 24H2/25H2 hardware-requirement bypass (`LabConfig` TPM/Secure Boot/RAM/storage/CPU)
+  in the BIOS/MBR answer-file trees (`vsphere`, `nutanix`, `xenserver`, `hyperv` Gen1)
+- Explicit native-command exit-code checking (`$LASTEXITCODE`) in all application installers
+- Functional `.github/CODEOWNERS`, expanded `.gitattributes` (CRLF pinning for scripts/answer files)
+- PSScriptAnalyzer settings and CI, shellcheck CI, and `packer validate`/`packer fmt` CI
 
 ### Changed
 
 - Reorganized autounattend structure by hypervisor type
 - Updated Windows Server 2022/2025 editions to include Azure Stack HCI
 - Improved autounattend file naming convention to `Autounattend-{Edition}.xml`
+- Standardized the build credential on `xoap-admin` across Packer var files, Vagrant
+  templates, and packer-local answer files (previously a mix of `Password01`);
+  `winrm_password` is now a `sensitive` variable
+- Re-pointed the Pester suite at the real `scripts/windows_server/**` tree; the standards
+  and cloud-specific tests now execute (986 cases) instead of silently skipping
 
 ### Fixed
 
 - XML validation issues with autounattend files in pre-commit hooks
+- Windows 11 answer files carried `/IMAGE/NAME` values of `Windows 10 <edition>`; corrected to `Windows 11`
+- Missing drive-letter colon in `autounattend/W11/nutanix/*.xml` (`E\qemupciserial` -> `E:\qemupciserial`)
+- Removed a 60-minute `Start-Sleep` in error traps of 15 provisioning scripts that hung Packer builds on failure
+- Repaired never-parsing data arrays in `windows-server-Optimize_w2k16.ps1` and a scope-qualifier
+  syntax error in `hyperv/Install_HyperV_Integration_Services.ps1`
+- Corrected all `.LINK` URLs from the old `xoap-packer-templates` repo name (78 files)
+
+### Removed
+
+- Root file with the illegal Windows name `C:\Windows\Temp\choco.ps1` (broke checkouts on Windows)
+- Duplicate `windows-server_Configure_Azure_Services.ps1`, double-extension `Install_Winget.ps1.ps1`
+- Windows 10 leftovers in the Windows 11 folder (`windows11-Optimize_W10_2004.ps1`, `windows11-W10_21H1_Remove_Apps.ps1`)
+- Unreferenced `helper/tools/mkisofs.*`, `build/init.ps1`, empty `opentofu/nutanix/vm-nutanix.ps1`,
+  committed CI artifact `tests/test-results.json`, and the non-functional root `CODEOWNERS.md`
 
 ## [2.0.0] - 2026-01-20
 

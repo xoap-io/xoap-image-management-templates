@@ -26,7 +26,7 @@ It is part of our [XOAP](https://xoap.io) Automation Forces Open Source communit
 
 **Key Features:**
 
-- 🖼️ **114 Autounattend Files** - Comprehensive unattended installation support for Windows Server (2016-2025) and Windows 11 across 5 hypervisor platforms
+- 🖼️ **114 Autounattend Files** - Comprehensive unattended installation support for Windows Server (2019-2025) and Windows 11 across 5 hypervisor platforms (Windows Server 2016 is supported via Packer builds under `packer-hcl/vmware-iso/windows/w2k16-1607/`)
 - ☁️ **Multi-Cloud Support** - AWS EC2, Azure VMs, Google Compute Engine with optimized provisioning scripts
 - 🔧 **Hypervisor Coverage** - VMware vSphere, Nutanix AHV, Citrix XenServer, Hyper-V Gen1/Gen2, Proxmox VE
 - 🎯 **Azure Stack HCI** - Dedicated support for Azure Stack HCI editions (Server 2022/2025)
@@ -77,7 +77,7 @@ but we are trying our best to implement everything that we can to reduce the ris
 ## Share the Love
 
 Like this project?
-Please give it a ★ on [our GitHub](https://github.com/xoap-io/xoap-uberagent-kibana-dashboards)!
+Please give it a ★ on [our GitHub](https://github.com/xoap-io/xoap-image-management-templates)!
 It helps us a lot.
 
 ---
@@ -180,7 +180,7 @@ See [autounattend/README.md](autounattend/README.md) for complete documentation.
 
 ### Provisioning Scripts
 
-PowerShell scripts for guest tools installation, optimization, and sysprep located in `scripts_wip/windows_server_2025_scripts/`:
+PowerShell scripts for guest tools installation, optimization, and sysprep are located under `scripts/windows_server/` (with per-platform subfolders `aws/`, `azure/`, `google/`, `hyperv/`, `nutanix/`, `proxmox/`, `vmware/`, `xenserver/`), `scripts/w11/`, and `scripts/applications/`:
 
 #### Cloud Platform Scripts
 
@@ -265,7 +265,7 @@ See https://docs.aws.amazon.com/AWSEC2/latest/WindowsGuide/ec2launch-v2.html for
 
 ### vmware-iso builder
 
-All VMware-based templates are located in the `vmware-iso/` directory. Use the autounattend files from `autounattend/{version}/vsphere/` for automated installations.
+All VMware-based templates are located in the `packer-hcl/vmware-iso/` directory. Use the autounattend files from `autounattend/{version}/vsphere/` for automated installations.
 
 **Example:**
 

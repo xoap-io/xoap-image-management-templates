@@ -50,7 +50,7 @@ try {
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
     Start-Transcript -Path $LogFile -Append | Out-Null
-    Write-Host "${colors.Cyan}Logging to: $LogFile${colors.Reset}"
+    Write-Host "Logging to: $LogFile"
 } catch { 
     Write-Warning "Failed to start transcript logging: $($_.Exception.Message)" 
 }
@@ -271,8 +271,8 @@ foreach ($scriptFile in $scripts) {
         $testResult.SyntaxCheck = "FAIL"
         $testResult.Errors = $syntaxResult.Errors
         
-        foreach ($error in $syntaxResult.Errors) {
-            Write-Host "  │  $($colors.Red)Error: $error$($colors.Reset)"
+        foreach ($err in $syntaxResult.Errors) {
+            Write-Host "  │  $($colors.Red)Error: $err$($colors.Reset)"
         }
     }
     
@@ -353,8 +353,8 @@ if ($script:FailedSyntax -gt 0 -or $script:FailedExecution -gt 0) {
     
     foreach ($failed in $failedScripts) {
         Write-Host "$($colors.Red)✗ $($failed.Script)$($colors.Reset)"
-        foreach ($error in $failed.Errors) {
-            Write-Host "  └─ $error"
+        foreach ($err in $failed.Errors) {
+            Write-Host "  └─ $err"
         }
     }
     Write-Host ""

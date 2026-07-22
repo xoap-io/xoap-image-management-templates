@@ -29,24 +29,16 @@ $LogName = 'set-power-config.log'
 $LogFile = Join-Path -Path $LogPath -ChildPath $LogName
 
 # Logging function
+$script:Component = 'Power'
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0)]
         [string]$Message,
-        
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [Power] $Message"
-    Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
+    $line = "[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message
+    Write-Host $line
 }
 
 # Main script execution
@@ -56,14 +48,15 @@ try {
         New-Item -Path $LogPath -ItemType Directory -Force | Out-Null
     }
     
-    Write-Log "Starting power configuration..."
+    $startTime = Get-Date
+    Write-Log "===== Set_Power_Config starting ====="
     Start-Transcript -Path $LogFile -Append | Out-Null
     
     # Set power plan to High Performance (SCHEME_MIN)
     Write-Log "Setting power plan to High Performance..."
     $result = powercfg /setactive SCHEME_MIN 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Log "Warning: powercfg setactive returned code: $LASTEXITCODE" -Level Warning
+        Write-Log "powercfg setactive returned code: $LASTEXITCODE" -Level WARN
     } else {
         Write-Log "High Performance power plan activated"
     }
@@ -92,13 +85,14 @@ try {
     $currentScheme = powercfg /getactivescheme
     Write-Log "Current active power scheme: $currentScheme"
     
-    Write-Log "Power configuration completed successfully"
-    
+    Write-Log "===== Set_Power_Config complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+
     Stop-Transcript | Out-Null
-    
+    exit 0
+
 } catch {
-    Write-Log "Error: $($_.Exception.Message)" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
     exit 1
 }

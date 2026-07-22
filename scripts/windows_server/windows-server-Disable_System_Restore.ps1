@@ -20,7 +20,7 @@
     Disables System Restore on all drives
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -44,21 +44,30 @@ try {
     $LogFile = $null
 }
 
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
-    param($Message)
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Host "[$timestamp] [$Level] [SystemRestore] $Message"
 }
 
 trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+    Write-Log "ERROR: $_" -Level ERROR
+    Write-Log "ERROR: $($_.ScriptStackTrace)" -Level ERROR
+    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())" -Level ERROR
     try { Stop-Transcript | Out-Null } catch {}
-    Exit 1
+    exit 1
 }
 
 try {
+    $startTime = Get-Date
+    Write-Log '===== Disable_System_Restore starting ====='
+
     $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
     # ProductType: 1 = Workstation, 2 = Domain Controller, 3 = Server
     if ($osInfo.ProductType -eq 1) {
@@ -67,13 +76,17 @@ try {
             Disable-ComputerRestore -Drive "C:\"
             Write-Log 'System Restore disabled successfully.'
         } catch {
-            Write-Log "Warning: Could not disable System Restore: $($_.Exception.Message)"
+            Write-Log "Warning: Could not disable System Restore: $($_.Exception.Message)" -Level WARN
         }
     } else {
         Write-Log 'System Restore is not available on server editions.'
     }
+
+    Write-Log "===== Disable_System_Restore complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 } finally {
     try { Stop-Transcript | Out-Null } catch {
-        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)"
+        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)" -Level WARN
     }
 }
+
+exit 0

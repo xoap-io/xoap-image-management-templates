@@ -24,9 +24,13 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $LogDir = 'C:\xoap-logs'
-$scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [Audit] Transcript unavailable: $($_.Exception.Message)" }
 
 $script:PoliciesConfigured = 0
 
@@ -46,24 +50,19 @@ function Write-Log {
     }
     $logMessage = "[$timestamp] [$prefix] [Audit] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
     Write-Log "Critical error: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
     $startTime = Get-Date
-    
+    Write-Log "===== Configure_Audit_Policy starting ====="
+
     Write-Log "==================================================="
     Write-Log "Advanced Audit Policy Configuration"
     Write-Log "==================================================="
@@ -78,7 +77,7 @@ try {
         $log.MaximumSizeInBytes = 1GB
         $log.SaveChanges()
         
-        Write-Log "✓ Security log size set to 1GB"
+        Write-Log "[OK] Security log size set to 1GB"
         Write-Log "  Current size: $([math]::Round($log.FileSize / 1MB, 2)) MB"
         $script:PoliciesConfigured++
     } catch {
@@ -136,10 +135,10 @@ try {
         try {
             $result = & auditpol.exe /set /subcategory:"$($policy.Subcategory)" /success:enable /failure:enable 2>&1
             if ($LASTEXITCODE -eq 0) {
-                Write-Log "  ✓ $($policy.Category) - $($policy.Subcategory): $($policy.Setting)"
+                Write-Log "  [OK] $($policy.Category) - $($policy.Subcategory): $($policy.Setting)"
                 $script:PoliciesConfigured++
             } else {
-                Write-Log "  ✗ Failed to set: $($policy.Subcategory)" -Level Warning
+                Write-Log "  [FAIL] Failed to set: $($policy.Subcategory)" -Level Warning
             }
         } catch {
             Write-Log "  Error setting $($policy.Subcategory): $($_.Exception.Message)" -Level Warning
@@ -156,7 +155,7 @@ try {
         }
         
         Set-ItemProperty -Path $regPath -Name 'ProcessCreationIncludeCmdLine_Enabled' -Value 1 -Type DWord
-        Write-Log "✓ Command line process auditing enabled"
+        Write-Log "[OK] Command line process auditing enabled"
         $script:PoliciesConfigured++
     } catch {
         Write-Log "Error enabling command line auditing: $($_.Exception.Message)" -Level Warning
@@ -201,7 +200,7 @@ try {
             New-Item -Path $psLogDir -ItemType Directory -Force | Out-Null
         }
         
-        Write-Log "✓ PowerShell logging enabled"
+        Write-Log "[OK] PowerShell logging enabled"
         $script:PoliciesConfigured++
     } catch {
         Write-Log "Error configuring PowerShell logging: $($_.Exception.Message)" -Level Warning
@@ -217,7 +216,7 @@ try {
         }
         
         Set-ItemProperty -Path $regPath -Name 'DisableEnhancedNotifications' -Value 0 -Type DWord -ErrorAction SilentlyContinue
-        Write-Log "✓ Windows Defender logging configured"
+        Write-Log "[OK] Windows Defender logging configured"
         $script:PoliciesConfigured++
     } catch {
         Write-Log "Windows Defender ATP not available or error: $($_.Exception.Message)" -Level Warning
@@ -230,7 +229,7 @@ try {
         $dnsLog = Get-WinEvent -ListLog 'Microsoft-Windows-DNS-Client/Operational' -ErrorAction Stop
         $dnsLog.IsEnabled = $true
         $dnsLog.SaveChanges()
-        Write-Log "✓ DNS Client logging enabled"
+        Write-Log "[OK] DNS Client logging enabled"
         $script:PoliciesConfigured++
     } catch {
         Write-Log "Error enabling DNS logging: $($_.Exception.Message)" -Level Warning
@@ -244,7 +243,7 @@ try {
         & auditpol.exe /backup /file:$backupPath 2>&1 | Out-Null
         
         if (Test-Path $backupPath) {
-            Write-Log "✓ Audit policy backed up to: $backupPath"
+            Write-Log "[OK] Audit policy backed up to: $backupPath"
             $script:PoliciesConfigured++
         }
     } catch {
@@ -277,10 +276,13 @@ try {
     Write-Log "Execution time: $([math]::Round($duration, 2))s"
     Write-Log "==================================================="
     Write-Log "Audit policy configuration completed!"
-    
+
+    Write-Log "===== Configure_Audit_Policy complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Script execution failed: $_" -Level Error
     exit 1
 } finally {
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
 }

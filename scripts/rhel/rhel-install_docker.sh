@@ -98,7 +98,7 @@ log_info "Installing required packages..."
 REQUIRED_PACKAGES="yum-utils device-mapper-persistent-data lvm2"
 
 if $PKG_MGR install -y $REQUIRED_PACKAGES; then
-    log_info "✓ Required packages installed"
+    log_info "[OK] Required packages installed"
     ((PACKAGES_INSTALLED++))
 else
     log_error "Failed to install required packages"
@@ -112,7 +112,7 @@ REPO_FILE="/etc/yum.repos.d/docker-ce.repo"
 
 if [[ ! -f "$REPO_FILE" ]]; then
     yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-    log_info "✓ Docker repository added"
+    log_info "[OK] Docker repository added"
 else
     log_info "Docker repository already configured"
 fi
@@ -124,7 +124,7 @@ if [[ "$DOCKER_VERSION" == "latest" ]]; then
     log_info "Installing latest Docker CE version..."
     
     if $PKG_MGR install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
-        log_info "✓ Docker CE installed successfully"
+        log_info "[OK] Docker CE installed successfully"
         ((PACKAGES_INSTALLED++))
     else
         log_error "Failed to install Docker CE"
@@ -135,7 +135,7 @@ else
     
     if $PKG_MGR install -y "docker-ce-${DOCKER_VERSION}" "docker-ce-cli-${DOCKER_VERSION}" \
                            containerd.io docker-buildx-plugin docker-compose-plugin; then
-        log_info "✓ Docker CE $DOCKER_VERSION installed successfully"
+        log_info "[OK] Docker CE $DOCKER_VERSION installed successfully"
         ((PACKAGES_INSTALLED++))
     else
         log_error "Failed to install Docker CE $DOCKER_VERSION"
@@ -169,7 +169,7 @@ if [[ ! -f "$DAEMON_CONFIG" ]]; then
 }
 EOF
     
-    log_info "✓ Docker daemon configured"
+    log_info "[OK] Docker daemon configured"
 else
     log_info "Docker daemon configuration already exists"
 fi
@@ -184,7 +184,7 @@ systemctl start docker
 sleep 2
 
 if systemctl is-active --quiet docker; then
-    log_info "✓ Docker service is running"
+    log_info "[OK] Docker service is running"
 else
     log_error "Docker service failed to start"
     systemctl status docker --no-pager
@@ -195,7 +195,7 @@ fi
 log_info "Testing Docker installation..."
 
 if docker run --rm hello-world &>/tmp/docker-hello-world.log; then
-    log_info "✓ Docker installation test passed"
+    log_info "[OK] Docker installation test passed"
 else
     log_error "Docker installation test failed"
     cat /tmp/docker-hello-world.log
@@ -213,7 +213,7 @@ if [[ "$ROOTLESS_MODE" == "true" ]]; then
     
     # Install rootless extras
     if $PKG_MGR install -y docker-ce-rootless-extras; then
-        log_info "✓ Rootless extras installed"
+        log_info "[OK] Rootless extras installed"
         ((PACKAGES_INSTALLED++))
     else
         log_error "Failed to install rootless extras"
@@ -228,7 +228,7 @@ if [[ "$ROOTLESS_MODE" == "true" ]]; then
         echo "$DOCKER_USER:$((USER_UID * 65536)):65536" >> /etc/subuid
         echo "$DOCKER_USER:$((USER_UID * 65536)):65536" >> /etc/subgid
         
-        log_info "✓ User namespaces configured"
+        log_info "[OK] User namespaces configured"
     fi
     
     log_info "To setup rootless Docker for $DOCKER_USER, run as that user:"
@@ -239,7 +239,7 @@ else
         log_info "Adding user '$DOCKER_USER' to docker group..."
         
         if usermod -aG docker "$DOCKER_USER"; then
-            log_info "✓ User added to docker group"
+            log_info "[OK] User added to docker group"
             log_info "User must log out and back in for changes to take effect"
         else
             log_warn "Failed to add user to docker group"

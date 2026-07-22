@@ -50,7 +50,7 @@ log_info "Installing auditd..."
 
 if ! dpkg -l | grep -q "^ii.*auditd"; then
     if DEBIAN_FRONTEND=noninteractive apt-get install -y auditd audispd-plugins; then
-        log_info "✓ auditd installed"
+        log_info "[OK] auditd installed"
     else
         log_error "Failed to install auditd"
         exit 1
@@ -140,7 +140,7 @@ cat > "$AUDIT_RULES" <<'EOF'
 -e 2
 EOF
 
-log_info "✓ Audit rules configured"
+log_info "[OK] Audit rules configured"
 ((RULES_CONFIGURED++))
 
 # Load audit rules
@@ -148,7 +148,7 @@ log_info "Loading audit rules..."
 
 augenrules --load
 
-log_info "✓ Audit rules loaded"
+log_info "[OK] Audit rules loaded"
 
 # Enable and start auditd
 log_info "Enabling auditd service..."
@@ -157,7 +157,7 @@ systemctl enable auditd
 systemctl restart auditd
 
 if systemctl is-active --quiet auditd; then
-    log_info "✓ auditd service is running"
+    log_info "[OK] auditd service is running"
 else
     log_error "auditd service failed to start"
     exit 1

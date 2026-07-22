@@ -69,28 +69,16 @@ $script:OptimizationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+# Leveled logging function (stdout is the state channel)
+function Write-Log {
     param(
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+    Write-Host "[$timestamp] [$Level] [NetAdapter] $Message"
 }
 
 function Test-IsAdministrator {
@@ -126,17 +114,17 @@ function Set-NetworkAdapterProperty {
         
         if ($property) {
             Set-NetAdapterAdvancedProperty -Name $AdapterName -DisplayName $PropertyName -DisplayValue $PropertyValue -ErrorAction Stop
-            Write-LogMessage "  ✓ $Description" -Level Success
+            Write-Log "  [OK] $Description" -Level INFO
             $script:OptimizationsApplied++
             return $true
         }
         else {
-            Write-LogMessage "  ⚠ Property '$PropertyName' not found on adapter '$AdapterName'" -Level Warning
+            Write-Log "  [WARN] Property '$PropertyName' not found on adapter '$AdapterName'" -Level WARN
             return $false
         }
     }
     catch {
-        Write-LogMessage "  ✗ Failed to set $Description : $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Failed to set $Description : $($_.Exception.Message)" -Level ERROR
         $script:OptimizationsFailed++
         return $false
     }
@@ -147,27 +135,27 @@ function Set-NetworkAdapterProperty {
 #region Network Adapter Discovery
 
 function Get-ConfigurableAdapters {
-    Write-LogMessage "Discovering network adapters..." -Level Info
+    Write-Log "Discovering network adapters..." -Level INFO
     
     try {
         $adapters = Get-NetAdapter -Name $AdapterName | Where-Object { $_.Status -eq 'Up' -or $_.Status -eq 'Disconnected' }
         
         if (-not $adapters) {
-            Write-LogMessage "No network adapters found matching '$AdapterName'" -Level Warning
+            Write-Log "No network adapters found matching '$AdapterName'" -Level WARN
             return $null
         }
         
-        Write-LogMessage "Found $($adapters.Count) network adapter(s):" -Level Info
+        Write-Log "Found $($adapters.Count) network adapter(s):" -Level INFO
         
         foreach ($adapter in $adapters) {
             $speed = if ($adapter.LinkSpeed) { $adapter.LinkSpeed } else { "Unknown" }
-            Write-LogMessage "  - $($adapter.Name) ($($adapter.InterfaceDescription)) - $speed - Status: $($adapter.Status)" -Level Info
+            Write-Log "  - $($adapter.Name) ($($adapter.InterfaceDescription)) - $speed - Status: $($adapter.Status)" -Level INFO
         }
         
         return $adapters
     }
     catch {
-        Write-LogMessage "Error discovering adapters: $($_.Exception.Message)" -Level Error
+        Write-Log "Error discovering adapters: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
@@ -179,13 +167,13 @@ function Get-ConfigurableAdapters {
 function Disable-IPv6OnAdapter {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "Disabling IPv6 on adapter: $($Adapter.Name)" -Level Info
+    Write-Log "Disabling IPv6 on adapter: $($Adapter.Name)" -Level INFO
     
     try {
         # Disable IPv6 binding
         Disable-NetAdapterBinding -Name $Adapter.Name -ComponentID ms_tcpip6 -ErrorAction Stop
         
-        Write-LogMessage "  ✓ IPv6 disabled" -Level Success
+        Write-Log "  [OK] IPv6 disabled" -Level INFO
         $script:OptimizationsApplied++
         
         # Also set registry key to disable IPv6 globally
@@ -195,12 +183,12 @@ function Disable-IPv6OnAdapter {
         }
         
         Set-ItemProperty -Path $regPath -Name 'DisabledComponents' -Value 0xFF -Type DWord
-        Write-LogMessage "  ✓ IPv6 disabled globally via registry" -Level Success
+        Write-Log "  [OK] IPv6 disabled globally via registry" -Level INFO
         
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error disabling IPv6: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error disabling IPv6: $($_.Exception.Message)" -Level ERROR
         $script:OptimizationsFailed++
         return $false
     }
@@ -213,7 +201,7 @@ function Disable-IPv6OnAdapter {
 function Configure-TCPOffloading {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "Configuring TCP/IP offloading on adapter: $($Adapter.Name)" -Level Info
+    Write-Log "Configuring TCP/IP offloading on adapter: $($Adapter.Name)" -Level INFO
     
     $offloadSettings = @{
         '*IPChecksumOffloadIPv4' = 'Enabled'
@@ -231,11 +219,11 @@ function Configure-TCPOffloading {
         if ($property) {
             try {
                 Set-NetAdapterAdvancedProperty -Name $Adapter.Name -RegistryKeyword $setting.Key -RegistryValue 3 -ErrorAction Stop
-                Write-LogMessage "  ✓ $($property.DisplayName): $($setting.Value)" -Level Success
+                Write-Log "  [OK] $($property.DisplayName): $($setting.Value)" -Level INFO
                 $script:OptimizationsApplied++
             }
             catch {
-                Write-LogMessage "  ⚠ Could not set $($property.DisplayName): $($_.Exception.Message)" -Level Warning
+                Write-Log "  [WARN] Could not set $($property.DisplayName): $($_.Exception.Message)" -Level WARN
             }
         }
     }
@@ -248,7 +236,7 @@ function Configure-TCPOffloading {
 function Configure-RSS {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "Configuring RSS (Receive Side Scaling) on adapter: $($Adapter.Name)" -Level Info
+    Write-Log "Configuring RSS (Receive Side Scaling) on adapter: $($Adapter.Name)" -Level INFO
     
     try {
         # Enable RSS
@@ -258,24 +246,24 @@ function Configure-RSS {
             if ($OptimizeForVirtualization) {
                 # For VMs, use fewer RSS queues
                 Set-NetAdapterRss -Name $Adapter.Name -Enabled $true -NumberOfReceiveQueues 2 -ErrorAction Stop
-                Write-LogMessage "  ✓ RSS enabled with 2 queues (VM optimized)" -Level Success
+                Write-Log "  [OK] RSS enabled with 2 queues (VM optimized)" -Level INFO
             }
             else {
                 # For physical, use more queues
                 Set-NetAdapterRss -Name $Adapter.Name -Enabled $true -ErrorAction Stop
-                Write-LogMessage "  ✓ RSS enabled" -Level Success
+                Write-Log "  [OK] RSS enabled" -Level INFO
             }
             
             $script:OptimizationsApplied++
             return $true
         }
         else {
-            Write-LogMessage "  ⚠ RSS not supported on this adapter" -Level Warning
+            Write-Log "  [WARN] RSS not supported on this adapter" -Level WARN
             return $false
         }
     }
     catch {
-        Write-LogMessage "  ✗ Error configuring RSS: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error configuring RSS: $($_.Exception.Message)" -Level ERROR
         $script:OptimizationsFailed++
         return $false
     }
@@ -288,7 +276,7 @@ function Configure-RSS {
 function Configure-VMQ {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "Configuring VMQ (Virtual Machine Queue) on adapter: $($Adapter.Name)" -Level Info
+    Write-Log "Configuring VMQ (Virtual Machine Queue) on adapter: $($Adapter.Name)" -Level INFO
     
     try {
         $vmq = Get-NetAdapterVmq -Name $Adapter.Name -ErrorAction SilentlyContinue
@@ -297,24 +285,24 @@ function Configure-VMQ {
             if ($OptimizeForVirtualization) {
                 # Disable VMQ for VMs (not needed, can cause issues)
                 Set-NetAdapterVmq -Name $Adapter.Name -Enabled $false -ErrorAction Stop
-                Write-LogMessage "  ✓ VMQ disabled (VM optimization)" -Level Success
+                Write-Log "  [OK] VMQ disabled (VM optimization)" -Level INFO
             }
             else {
                 # Enable VMQ for Hyper-V hosts
                 Set-NetAdapterVmq -Name $Adapter.Name -Enabled $true -ErrorAction Stop
-                Write-LogMessage "  ✓ VMQ enabled" -Level Success
+                Write-Log "  [OK] VMQ enabled" -Level INFO
             }
             
             $script:OptimizationsApplied++
             return $true
         }
         else {
-            Write-LogMessage "  ⚠ VMQ not supported on this adapter" -Level Warning
+            Write-Log "  [WARN] VMQ not supported on this adapter" -Level WARN
             return $false
         }
     }
     catch {
-        Write-LogMessage "  ✗ Error configuring VMQ: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error configuring VMQ: $($_.Exception.Message)" -Level ERROR
         $script:OptimizationsFailed++
         return $false
     }
@@ -327,7 +315,7 @@ function Configure-VMQ {
 function Disable-AdapterPowerSaving {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "Disabling power management on adapter: $($Adapter.Name)" -Level Info
+    Write-Log "Disabling power management on adapter: $($Adapter.Name)" -Level INFO
     
     try {
         $powerSettings = Get-NetAdapterPowerManagement -Name $Adapter.Name -ErrorAction Stop
@@ -338,20 +326,20 @@ function Disable-AdapterPowerSaving {
             -DeviceSleepOnDisconnect Disabled `
             -ErrorAction Stop
         
-        Write-LogMessage "  ✓ Power management disabled" -Level Success
+        Write-Log "  [OK] Power management disabled" -Level INFO
         $script:OptimizationsApplied++
         
         # Also disable wake-on-LAN if not needed
         $wol = Get-NetAdapterPowerManagement -Name $Adapter.Name
         if ($wol.WakeOnMagicPacket -ne 'Disabled') {
             Set-NetAdapterPowerManagement -Name $Adapter.Name -WakeOnMagicPacket Disabled -ErrorAction SilentlyContinue
-            Write-LogMessage "  ✓ Wake-on-LAN disabled" -Level Success
+            Write-Log "  [OK] Wake-on-LAN disabled" -Level INFO
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error disabling power management: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error disabling power management: $($_.Exception.Message)" -Level ERROR
         $script:OptimizationsFailed++
         return $false
     }
@@ -364,7 +352,7 @@ function Disable-AdapterPowerSaving {
 function Enable-JumboFrames {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "Enabling Jumbo Frames on adapter: $($Adapter.Name)" -Level Info
+    Write-Log "Enabling Jumbo Frames on adapter: $($Adapter.Name)" -Level INFO
     
     try {
         # Check if adapter supports jumbo frames
@@ -374,17 +362,17 @@ function Enable-JumboFrames {
         if ($property) {
             # Set to 9000 (9014 bytes including header)
             Set-NetAdapterAdvancedProperty -Name $Adapter.Name -RegistryKeyword $property.RegistryKeyword -RegistryValue 9014 -ErrorAction Stop
-            Write-LogMessage "  ✓ Jumbo Frames enabled (MTU 9000)" -Level Success
+            Write-Log "  [OK] Jumbo Frames enabled (MTU 9000)" -Level INFO
             $script:OptimizationsApplied++
             return $true
         }
         else {
-            Write-LogMessage "  ⚠ Jumbo Frames not supported on this adapter" -Level Warning
+            Write-Log "  [WARN] Jumbo Frames not supported on this adapter" -Level WARN
             return $false
         }
     }
     catch {
-        Write-LogMessage "  ✗ Error enabling Jumbo Frames: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error enabling Jumbo Frames: $($_.Exception.Message)" -Level ERROR
         $script:OptimizationsFailed++
         return $false
     }
@@ -397,7 +385,7 @@ function Enable-JumboFrames {
 function Disable-NetBIOSOverTCPIP {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "Disabling NetBIOS over TCP/IP on adapter: $($Adapter.Name)" -Level Info
+    Write-Log "Disabling NetBIOS over TCP/IP on adapter: $($Adapter.Name)" -Level INFO
     
     try {
         $adapterConfig = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | 
@@ -408,23 +396,23 @@ function Disable-NetBIOSOverTCPIP {
             $result = $adapterConfig | Invoke-CimMethod -MethodName SetTcpipNetbios -Arguments @{ TcpipNetbiosOptions = 2 }
             
             if ($result.ReturnValue -eq 0) {
-                Write-LogMessage "  ✓ NetBIOS over TCP/IP disabled" -Level Success
+                Write-Log "  [OK] NetBIOS over TCP/IP disabled" -Level INFO
                 $script:OptimizationsApplied++
                 return $true
             }
             else {
-                Write-LogMessage "  ✗ Failed to disable NetBIOS (Return code: $($result.ReturnValue))" -Level Error
+                Write-Log "  [FAIL] Failed to disable NetBIOS (Return code: $($result.ReturnValue))" -Level ERROR
                 $script:OptimizationsFailed++
                 return $false
             }
         }
         else {
-            Write-LogMessage "  ⚠ Adapter configuration not found" -Level Warning
+            Write-Log "  [WARN] Adapter configuration not found" -Level WARN
             return $false
         }
     }
     catch {
-        Write-LogMessage "  ✗ Error disabling NetBIOS: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error disabling NetBIOS: $($_.Exception.Message)" -Level ERROR
         $script:OptimizationsFailed++
         return $false
     }
@@ -437,7 +425,7 @@ function Disable-NetBIOSOverTCPIP {
 function Set-AdapterBuffers {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "Configuring buffer settings on adapter: $($Adapter.Name)" -Level Info
+    Write-Log "Configuring buffer settings on adapter: $($Adapter.Name)" -Level INFO
     
     # Increase receive buffers for better performance
     $bufferSettings = @{
@@ -454,11 +442,11 @@ function Set-AdapterBuffers {
         if ($property) {
             try {
                 Set-NetAdapterAdvancedProperty -Name $Adapter.Name -RegistryKeyword $setting.Key -RegistryValue $setting.Value -ErrorAction Stop
-                Write-LogMessage "  ✓ $($property.DisplayName): $($setting.Value)" -Level Success
+                Write-Log "  [OK] $($property.DisplayName): $($setting.Value)" -Level INFO
                 $script:OptimizationsApplied++
             }
             catch {
-                Write-LogMessage "  ⚠ Could not set $($property.DisplayName): $($_.Exception.Message)" -Level Warning
+                Write-Log "  [WARN] Could not set $($property.DisplayName): $($_.Exception.Message)" -Level WARN
             }
         }
     }
@@ -467,7 +455,7 @@ function Set-AdapterBuffers {
 function Optimize-InterruptModeration {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "Optimizing Interrupt Moderation on adapter: $($Adapter.Name)" -Level Info
+    Write-Log "Optimizing Interrupt Moderation on adapter: $($Adapter.Name)" -Level INFO
     
     try {
         $property = Get-NetAdapterAdvancedProperty -Name $Adapter.Name | 
@@ -476,17 +464,17 @@ function Optimize-InterruptModeration {
         if ($property) {
             # Enable interrupt moderation for better performance
             Set-NetAdapterAdvancedProperty -Name $Adapter.Name -RegistryKeyword '*InterruptModeration' -RegistryValue 1 -ErrorAction Stop
-            Write-LogMessage "  ✓ Interrupt Moderation enabled" -Level Success
+            Write-Log "  [OK] Interrupt Moderation enabled" -Level INFO
             $script:OptimizationsApplied++
             return $true
         }
         else {
-            Write-LogMessage "  ⚠ Interrupt Moderation not available" -Level Warning
+            Write-Log "  [WARN] Interrupt Moderation not available" -Level WARN
             return $false
         }
     }
     catch {
-        Write-LogMessage "  ✗ Error configuring Interrupt Moderation: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error configuring Interrupt Moderation: $($_.Exception.Message)" -Level ERROR
         $script:OptimizationsFailed++
         return $false
     }
@@ -499,54 +487,54 @@ function Optimize-InterruptModeration {
 function Get-AdapterConfigurationReport {
     param([Parameter(Mandatory)]$Adapter)
     
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "Configuration report for adapter: $($Adapter.Name)" -Level Info
-    Write-LogMessage "=" * 60 -Level Info
+    Write-Log "" -Level INFO
+    Write-Log "Configuration report for adapter: $($Adapter.Name)" -Level INFO
+    Write-Log "=" * 60 -Level INFO
     
     # Basic info
-    Write-LogMessage "Interface: $($Adapter.InterfaceDescription)" -Level Info
-    Write-LogMessage "Status: $($Adapter.Status)" -Level Info
-    Write-LogMessage "Speed: $($Adapter.LinkSpeed)" -Level Info
-    Write-LogMessage "MAC Address: $($Adapter.MacAddress)" -Level Info
+    Write-Log "Interface: $($Adapter.InterfaceDescription)" -Level INFO
+    Write-Log "Status: $($Adapter.Status)" -Level INFO
+    Write-Log "Speed: $($Adapter.LinkSpeed)" -Level INFO
+    Write-Log "MAC Address: $($Adapter.MacAddress)" -Level INFO
     
     # IP configuration
     $ipConfig = Get-NetIPAddress -InterfaceIndex $Adapter.InterfaceIndex -ErrorAction SilentlyContinue
     if ($ipConfig) {
-        Write-LogMessage "" -Level Info
-        Write-LogMessage "IP Addresses:" -Level Info
+        Write-Log "" -Level INFO
+        Write-Log "IP Addresses:" -Level INFO
         foreach ($ip in $ipConfig) {
-            Write-LogMessage "  $($ip.IPAddress)/$($ip.PrefixLength) ($($ip.AddressFamily))" -Level Info
+            Write-Log "  $($ip.IPAddress)/$($ip.PrefixLength) ($($ip.AddressFamily))" -Level INFO
         }
     }
     
     # Advanced properties
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "Advanced Properties:" -Level Info
+    Write-Log "" -Level INFO
+    Write-Log "Advanced Properties:" -Level INFO
     
     $properties = Get-NetAdapterAdvancedProperty -Name $Adapter.Name | Sort-Object DisplayName
     foreach ($prop in $properties) {
         if ($prop.DisplayValue) {
-            Write-LogMessage "  $($prop.DisplayName): $($prop.DisplayValue)" -Level Info
+            Write-Log "  $($prop.DisplayName): $($prop.DisplayValue)" -Level INFO
         }
     }
     
     # Bindings
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "Bindings:" -Level Info
+    Write-Log "" -Level INFO
+    Write-Log "Bindings:" -Level INFO
     
     $bindings = Get-NetAdapterBinding -Name $Adapter.Name
     foreach ($binding in $bindings) {
         $status = if ($binding.Enabled) { "Enabled" } else { "Disabled" }
-        Write-LogMessage "  $($binding.DisplayName): $status" -Level Info
+        Write-Log "  $($binding.DisplayName): $status" -Level INFO
     }
     
-    Write-LogMessage "=" * 60 -Level Info
+    Write-Log "=" * 60 -Level INFO
 }
 
 function Save-ConfigurationReport {
     param([Parameter(Mandatory)]$Adapters)
     
-    Write-LogMessage "Generating configuration report..." -Level Info
+    Write-Log "Generating configuration report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "network-adapters-$timestamp.txt"
@@ -604,11 +592,11 @@ function Save-ConfigurationReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Configuration report saved to: $reportFile" -Level Success
+        Write-Log "Configuration report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -618,19 +606,23 @@ function Save-ConfigurationReport {
 #region Main Execution
 
 function Main {
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
+    }
+
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Network Adapter Configuration" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Configure_Network_Adapter starting (AdapterName=$AdapterName) ====="
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
@@ -638,24 +630,24 @@ function Main {
     $adapters = Get-ConfigurableAdapters
     
     if (-not $adapters) {
-        Write-LogMessage "No network adapters to configure" -Level Error
+        Write-Log "No network adapters to configure" -Level ERROR
         exit 1
     }
     
     # Configuration summary
-    Write-LogMessage "Configuration options:" -Level Info
-    Write-LogMessage "  Disable IPv6: $DisableIPv6" -Level Info
-    Write-LogMessage "  Optimize for Virtualization: $OptimizeForVirtualization" -Level Info
-    Write-LogMessage "  Enable Jumbo Frames: $EnableJumboFrames" -Level Info
-    Write-LogMessage "  Disable Power Saving: $DisablePowerSaving" -Level Info
-    Write-LogMessage "  Configure Offloading: $ConfigureOffloading" -Level Info
-    Write-LogMessage "  Disable NetBIOS: $DisableNetBIOS" -Level Info
-    Write-LogMessage "" -Level Info
+    Write-Log "Configuration options:" -Level INFO
+    Write-Log "  Disable IPv6: $DisableIPv6" -Level INFO
+    Write-Log "  Optimize for Virtualization: $OptimizeForVirtualization" -Level INFO
+    Write-Log "  Enable Jumbo Frames: $EnableJumboFrames" -Level INFO
+    Write-Log "  Disable Power Saving: $DisablePowerSaving" -Level INFO
+    Write-Log "  Configure Offloading: $ConfigureOffloading" -Level INFO
+    Write-Log "  Disable NetBIOS: $DisableNetBIOS" -Level INFO
+    Write-Log "" -Level INFO
     
     # Configure each adapter
     foreach ($adapter in $adapters) {
-        Write-LogMessage "" -Level Info
-        Write-LogMessage "========== Configuring: $($adapter.Name) ==========" -Level Info
+        Write-Log "" -Level INFO
+        Write-Log "========== Configuring: $($adapter.Name) ==========" -Level INFO
         
         # IPv6
         if ($DisableIPv6) {
@@ -702,25 +694,16 @@ function Main {
     Save-ConfigurationReport -Adapters $adapters
     
     # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configuration Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Adapters Configured: $($adapters.Count)" -Level Info
-    Write-LogMessage "Optimizations Applied: $script:OptimizationsApplied" -Level Info
-    Write-LogMessage "Optimizations Failed: $script:OptimizationsFailed" -Level Info
-    Write-LogMessage "Duration: $([math]::Round($duration.TotalSeconds, 2)) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
+    $duration = ((Get-Date) - $scriptStartTime).TotalSeconds
+
+    Write-Log "Adapters Configured: $($adapters.Count)"
+
     if ($script:OptimizationsFailed -eq 0) {
-        Write-LogMessage "Network adapter configuration completed successfully!" -Level Success
+        Write-Log "===== Configure_Network_Adapter complete in $([int]$duration)s; applied=$($script:OptimizationsApplied) failed=$($script:OptimizationsFailed) ====="
         exit 0
     }
     else {
-        Write-LogMessage "Configuration completed with $script:OptimizationsFailed failures" -Level Warning
+        Write-Log "===== Configure_Network_Adapter complete in $([int]$duration)s; applied=$($script:OptimizationsApplied) failed=$($script:OptimizationsFailed) =====" -Level WARN
         exit 1
     }
 }
@@ -730,9 +713,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

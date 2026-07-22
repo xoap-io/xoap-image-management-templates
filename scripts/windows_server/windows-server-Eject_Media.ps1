@@ -20,7 +20,7 @@
     Ejects all removable media
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -44,21 +44,30 @@ try {
     $LogFile = $null
 }
 
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
-    param($Message)
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Host "[$timestamp] [$Level] [Media] $Message"
 }
 
 trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+    Write-Log "ERROR: $_" -Level ERROR
+    Write-Log "ERROR: $($_.ScriptStackTrace)" -Level ERROR
+    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())" -Level ERROR
     try { Stop-Transcript | Out-Null } catch {}
-    Exit 1
+    exit 1
 }
 
 try {
+    $startTime = Get-Date
+    Write-Log '===== Eject_Media starting ====='
+
     # Enable TLS 1.2
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
@@ -73,16 +82,18 @@ try {
             $Eject.NameSpace(17).ParseName("${volLetter}:").InvokeVerb("Eject")
             Write-Log "Drive ${volLetter}: ejected successfully."
         } catch {
-            Write-Log "Warning: Could not eject drive ${volLetter}: $($_.Exception.Message)"
+            Write-Log "Warning: Could not eject drive ${volLetter}: $($_.Exception.Message)" -Level WARN
         } finally {
             if ($Eject) {
                 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($Eject) | Out-Null
             }
         }
     }
-    Write-Log 'Eject media script completed.'
+    Write-Log "===== Eject_Media complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 } finally {
     try { Stop-Transcript | Out-Null } catch {
-        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)"
+        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)" -Level WARN
     }
 }
+
+exit 0

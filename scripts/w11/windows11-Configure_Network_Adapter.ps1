@@ -43,7 +43,13 @@ $ProgressPreference = 'SilentlyContinue'
 $LogDir = 'C:\xoap-logs'
 $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [Network] Transcript unavailable: $($_.Exception.Message)" }
 
 $script:OptimizationsApplied = 0
 $script:OptimizationsFailed = 0
@@ -56,14 +62,14 @@ function Write-LogMessage {
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+    $levelTag = switch ($Level) {
+        'Warning' { 'WARN' }
+        'Error'   { 'ERROR' }
+        'Success' { 'INFO' }
+        default   { 'INFO' }
     }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
+    $logMessage = "[$timestamp] [$levelTag] [Network] $Message"
+
     switch ($Level) {
         'Error'   { Write-Host $logMessage -ForegroundColor Red }
         'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
@@ -73,6 +79,8 @@ function Write-LogMessage {
 }
 
 try {
+    $startTime = Get-Date
+    Write-LogMessage "===== Configure_Network_Adapter starting ====="
     Write-LogMessage "=============================================="
     Write-LogMessage "Network Adapter Configuration Script"
     Write-LogMessage "=============================================="
@@ -94,10 +102,10 @@ try {
                 Write-LogMessage "  Disabling IPv6..."
                 Disable-NetAdapterBinding -Name $adapter.Name -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue
                 $script:OptimizationsApplied++
-                Write-LogMessage "  ✓ IPv6 disabled" -Level Success
+                Write-LogMessage "  [OK] IPv6 disabled" -Level Success
             } catch {
                 $script:OptimizationsFailed++
-                Write-LogMessage "  ✗ Failed to disable IPv6: $($_.Exception.Message)" -Level Warning
+                Write-LogMessage "  [FAIL] Failed to disable IPv6: $($_.Exception.Message)" -Level Warning
             }
         }
         
@@ -124,10 +132,10 @@ try {
                 }
                 
                 $script:OptimizationsApplied++
-                Write-LogMessage "  ✓ Power management disabled" -Level Success
+                Write-LogMessage "  [OK] Power management disabled" -Level Success
             } catch {
                 $script:OptimizationsFailed++
-                Write-LogMessage "  ✗ Failed to disable power management: $($_.Exception.Message)" -Level Warning
+                Write-LogMessage "  [FAIL] Failed to disable power management: $($_.Exception.Message)" -Level Warning
             }
         }
         
@@ -142,13 +150,13 @@ try {
                 if (Test-Path $netbtPath) {
                     Set-ItemProperty -Path $netbtPath -Name "NetbiosOptions" -Value 2 -Type DWord
                     $script:OptimizationsApplied++
-                    Write-LogMessage "  ✓ NetBIOS disabled" -Level Success
+                    Write-LogMessage "  [OK] NetBIOS disabled" -Level Success
                 } else {
-                    Write-LogMessage "  ⊗ NetBIOS registry path not found" -Level Warning
+                    Write-LogMessage "  [x] NetBIOS registry path not found" -Level Warning
                 }
             } catch {
                 $script:OptimizationsFailed++
-                Write-LogMessage "  ✗ Failed to disable NetBIOS: $($_.Exception.Message)" -Level Warning
+                Write-LogMessage "  [FAIL] Failed to disable NetBIOS: $($_.Exception.Message)" -Level Warning
             }
         }
     }
@@ -160,9 +168,13 @@ try {
     Write-LogMessage "Optimizations Applied: $script:OptimizationsApplied"
     Write-LogMessage "Optimizations Failed: $script:OptimizationsFailed"
     Write-LogMessage "Network adapter configuration completed successfully" -Level Success
-    
+    Write-LogMessage "===== Configure_Network_Adapter complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-LogMessage "Critical error during network adapter configuration: $($_.Exception.Message)" -Level Error
     Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

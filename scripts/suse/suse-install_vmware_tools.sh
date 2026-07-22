@@ -65,7 +65,7 @@ if [[ -n "${DISPLAY:-}" ]] || systemctl is-active --quiet gdm 2>/dev/null || sys
 fi
 
 if zypper install -y $PACKAGES; then
-    log_info "✓ open-vm-tools installed successfully"
+    log_info "[OK] open-vm-tools installed successfully"
     ((PACKAGES_INSTALLED++))
 else
     log_error "Failed to install open-vm-tools"
@@ -88,9 +88,9 @@ systemctl start vmtoolsd
 sleep 2
 
 if systemctl is-active --quiet vmtoolsd; then
-    log_info "✓ vmtoolsd service is running"
+    log_info "[OK] vmtoolsd service is running"
 else
-    log_error "✗ vmtoolsd service failed to start"
+    log_error "[FAIL] vmtoolsd service failed to start"
     systemctl status vmtoolsd --no-pager
     exit 1
 fi
@@ -102,15 +102,15 @@ if systemctl list-unit-files | grep -q "vgauthd.service"; then
     systemctl start vgauthd
     
     if systemctl is-active --quiet vgauthd; then
-        log_info "✓ vgauthd service is running"
+        log_info "[OK] vgauthd service is running"
     else
-        log_warn "✗ vgauthd service failed to start"
+        log_warn "[FAIL] vgauthd service failed to start"
     fi
 fi
 
 # Check for vmhgfs-fuse (shared folders)
 if command -v vmhgfs-fuse &>/dev/null; then
-    log_info "✓ Shared folders support available"
+    log_info "[OK] Shared folders support available"
 else
     log_info "Shared folders support not available"
 fi
@@ -125,7 +125,7 @@ if command -v vmhgfs-fuse &>/dev/null; then
     # Add to fstab if not present
     if ! grep -q "vmhgfs-fuse" /etc/fstab; then
         echo ".host:/ /mnt/hgfs fuse.vmhgfs-fuse allow_other,defaults 0 0" >> /etc/fstab
-        log_info "✓ Shared folders configured in /etc/fstab"
+        log_info "[OK] Shared folders configured in /etc/fstab"
         ((PACKAGES_INSTALLED++))
     fi
 fi
@@ -163,7 +163,7 @@ if vmware-toolbox-cmd timesync status &>/dev/null; then
     if [[ "$TIMESYNC_STATUS" == *"Disabled"* ]]; then
         log_info "  Enabling time synchronization..."
         vmware-toolbox-cmd timesync enable
-        log_info "  ✓ Time sync enabled"
+        log_info "  [OK] Time sync enabled"
     fi
 else
     log_info "  Time sync control not available"
@@ -186,7 +186,7 @@ VMWARE_MODULES=("vmw_balloon" "vmw_vmci" "vmw_vsock_vmci_transport" "vmwgfx" "vm
 
 for module in "${VMWARE_MODULES[@]}"; do
     if lsmod | grep -q "^$module"; then
-        log_info "  ✓ $module loaded"
+        log_info "  [OK] $module loaded"
     else
         log_info "  - $module not loaded"
     fi

@@ -64,7 +64,7 @@ if ! command -v aa-status &>/dev/null; then
     log_info "Installing AppArmor packages..."
     
     if zypper install -y apparmor-utils apparmor-profiles apparmor-profiles-extra; then
-        log_info "✓ AppArmor packages installed"
+        log_info "[OK] AppArmor packages installed"
         ((PROFILES_CONFIGURED++))
     else
         log_error "Failed to install AppArmor packages"
@@ -84,7 +84,7 @@ systemctl start apparmor
 sleep 2
 
 if systemctl is-active --quiet apparmor; then
-    log_info "✓ AppArmor service is running"
+    log_info "[OK] AppArmor service is running"
 else
     log_error "Failed to start AppArmor service"
     exit 1
@@ -94,7 +94,7 @@ fi
 log_info "Checking AppArmor status..."
 
 if aa-enabled &>/dev/null; then
-    log_info "✓ AppArmor is enabled"
+    log_info "[OK] AppArmor is enabled"
 else
     log_warn "AppArmor is not fully enabled"
 fi
@@ -122,7 +122,7 @@ log_info "Configuring AppArmor profiles to $APPARMOR_MODE mode..."
 if [[ "$APPARMOR_MODE" == "enforce" ]]; then
     # Set all profiles to enforce mode
     if aa-enforce /etc/apparmor.d/* 2>/dev/null; then
-        log_info "✓ Profiles set to enforce mode"
+        log_info "[OK] Profiles set to enforce mode"
         ((PROFILES_CONFIGURED++))
     else
         log_warn "Some profiles could not be set to enforce mode"
@@ -130,7 +130,7 @@ if [[ "$APPARMOR_MODE" == "enforce" ]]; then
 elif [[ "$APPARMOR_MODE" == "complain" ]]; then
     # Set all profiles to complain mode
     if aa-complain /etc/apparmor.d/* 2>/dev/null; then
-        log_info "✓ Profiles set to complain mode"
+        log_info "[OK] Profiles set to complain mode"
         ((PROFILES_CONFIGURED++))
     else
         log_warn "Some profiles could not be set to complain mode"
@@ -144,7 +144,7 @@ fi
 log_info "Reloading AppArmor profiles..."
 
 if systemctl reload apparmor; then
-    log_info "✓ AppArmor profiles reloaded"
+    log_info "[OK] AppArmor profiles reloaded"
     ((PROFILES_CONFIGURED++))
 else
     log_warn "Failed to reload some AppArmor profiles"
@@ -170,7 +170,7 @@ if [[ "$UNCONFINED_PROCS" -gt 0 ]]; then
         log_info "  $line"
     done
 else
-    log_info "✓ No unconfined processes detected"
+    log_info "[OK] No unconfined processes detected"
 fi
 
 # Configure AppArmor parser cache
@@ -179,7 +179,7 @@ log_info "Configuring AppArmor parser cache..."
 mkdir -p /var/cache/apparmor
 systemctl enable apparmor.service
 
-log_info "✓ Parser cache configured"
+log_info "[OK] Parser cache configured"
 
 # Verify critical profiles
 log_info "Verifying critical AppArmor profiles..."
@@ -193,9 +193,9 @@ CRITICAL_PROFILES=(
 
 for profile in "${CRITICAL_PROFILES[@]}"; do
     if aa-status 2>/dev/null | grep -q "$profile"; then
-        log_info "  ✓ $profile is protected"
+        log_info "  [OK] $profile is protected"
     else
-        log_warn "  ✗ $profile is not protected"
+        log_warn "  [FAIL] $profile is not protected"
     fi
 done
 

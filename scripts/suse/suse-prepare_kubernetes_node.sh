@@ -71,12 +71,12 @@ log_info "Disabling swap..."
 
 if [[ $(swapon --show | wc -l) -gt 0 ]]; then
     swapoff -a
-    log_info "✓ Swap disabled"
+    log_info "[OK] Swap disabled"
     ((CONFIGS_APPLIED++))
     
     # Comment out swap in fstab
     sed -i '/swap/s/^/#/' /etc/fstab
-    log_info "✓ Swap entries commented in fstab"
+    log_info "[OK] Swap entries commented in fstab"
 else
     log_info "Swap is already disabled"
 fi
@@ -95,7 +95,7 @@ EOF
 modprobe overlay
 modprobe br_netfilter
 
-log_info "✓ Kernel modules loaded"
+log_info "[OK] Kernel modules loaded"
 ((CONFIGS_APPLIED++))
 
 # Configure sysctl parameters
@@ -112,7 +112,7 @@ EOF
 
 sysctl --system &>/dev/null || log_warn "Failed to reload sysctl"
 
-log_info "✓ Kernel parameters configured"
+log_info "[OK] Kernel parameters configured"
 ((CONFIGS_APPLIED++))
 
 # Verify kernel parameters
@@ -127,7 +127,7 @@ log_info "Disabling firewall..."
 if systemctl is-active --quiet firewalld; then
     systemctl stop firewalld
     systemctl disable firewalld
-    log_info "✓ firewalld disabled"
+    log_info "[OK] firewalld disabled"
     ((CONFIGS_APPLIED++))
 else
     log_info "firewalld already disabled"
@@ -140,7 +140,7 @@ if [[ "$CONTAINER_RUNTIME" == "containerd" ]]; then
     log_info "Installing containerd..."
     
     if zypper install -y containerd; then
-        log_info "✓ containerd installed"
+        log_info "[OK] containerd installed"
         
         # Configure containerd
         mkdir -p /etc/containerd
@@ -153,7 +153,7 @@ if [[ "$CONTAINER_RUNTIME" == "containerd" ]]; then
         systemctl start containerd
         
         if systemctl is-active --quiet containerd; then
-            log_info "✓ containerd is running"
+            log_info "[OK] containerd is running"
             ((CONFIGS_APPLIED++))
         else
             log_error "Failed to start containerd"
@@ -180,7 +180,7 @@ gpgcheck=1
 gpgkey=https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/repodata/repomd.xml.key
 EOF
 
-log_info "✓ Kubernetes repository added"
+log_info "[OK] Kubernetes repository added"
 ((CONFIGS_APPLIED++))
 
 # Refresh repositories
@@ -190,7 +190,7 @@ zypper refresh
 log_info "Installing Kubernetes packages..."
 
 if zypper install -y kubelet kubeadm kubectl; then
-    log_info "✓ Kubernetes packages installed"
+    log_info "[OK] Kubernetes packages installed"
     ((CONFIGS_APPLIED++))
 else
     log_error "Failed to install Kubernetes packages"
@@ -200,7 +200,7 @@ fi
 # Enable kubelet
 systemctl enable kubelet
 
-log_info "✓ kubelet enabled"
+log_info "[OK] kubelet enabled"
 
 # Display installed versions
 log_info "Installed Kubernetes versions:"

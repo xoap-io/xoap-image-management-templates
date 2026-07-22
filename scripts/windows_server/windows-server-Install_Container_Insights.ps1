@@ -72,18 +72,27 @@ if (-not (Test-Path $LogPath)) {
 
 Start-Transcript -Path $LogFile -Append
 
+$script:Component = 'ContainerInsights'
+function Write-Log {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
+}
+
 # Error handling
 trap {
-    Write-Error "Error: $_"
-    Write-Error $_.ScriptStackTrace
+    Write-Log "Error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     Stop-Transcript
     exit 1
 }
 
-Write-Host "=== Azure Container Insights Installation ===" -ForegroundColor Cyan
-Write-Host "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Gray
-Write-Host "Workspace ID: $($WorkspaceId.Substring(0, 8))..." -ForegroundColor Gray
-Write-Host ""
+$startTime = Get-Date
+Write-Log "===== Install_Container_Insights starting (WorkspaceId=$($WorkspaceId.Substring(0, 8))...) ====="
 
 # Validate workspace credentials
 if ($WorkspaceId.Length -lt 10 -or $WorkspaceKey.Length -lt 20) {
@@ -91,38 +100,38 @@ if ($WorkspaceId.Length -lt 10 -or $WorkspaceKey.Length -lt 20) {
 }
 
 # Detect container runtime
-Write-Host "Detecting container runtimes..." -ForegroundColor Yellow
+Write-Log "Detecting container runtimes..."
 $DockerService = Get-Service docker -ErrorAction SilentlyContinue
 $ContainerdRunning = Get-Process containerd -ErrorAction SilentlyContinue
 
 if ($DockerService -and $DockerService.Status -eq 'Running') {
-    Write-Host "  [DETECTED] Docker" -ForegroundColor Green
+    Write-Log "[DETECTED] Docker"
     $MonitorDocker = $true
 }
 
 if ($ContainerdRunning) {
-    Write-Host "  [DETECTED] containerd" -ForegroundColor Green
+    Write-Log "[DETECTED] containerd"
     $MonitorContainerd = $true
 }
 
 if (-not $MonitorDocker -and -not $MonitorContainerd) {
-    Write-Warning "No container runtime detected. Installing agent only."
+    Write-Log "No container runtime detected. Installing agent only." -Level WARN
 }
 
 # Download OMS Agent
-Write-Host "`nDownloading Microsoft Monitoring Agent..." -ForegroundColor Yellow
+Write-Log "Downloading Microsoft Monitoring Agent..."
 $AgentUrl = "https://go.microsoft.com/fwlink/?LinkId=828603"
 $AgentPath = Join-Path $env:TEMP "MMASetup-AMD64.exe"
 
 try {
     Invoke-WebRequest -Uri $AgentUrl -OutFile $AgentPath -UseBasicParsing
-    Write-Host "  [OK] Agent downloaded" -ForegroundColor Green
+    Write-Log "[OK] Agent downloaded"
 } catch {
     throw "Failed to download OMS Agent: $_"
 }
 
 # Install OMS Agent
-Write-Host "`nInstalling Microsoft Monitoring Agent..." -ForegroundColor Yellow
+Write-Log "Installing Microsoft Monitoring Agent..."
 $AgentArguments = @(
     "/C:setup.exe",
     "/qn",
@@ -136,14 +145,14 @@ $AgentArguments = @(
 $InstallProcess = Start-Process -FilePath $AgentPath -ArgumentList $AgentArguments -Wait -PassThru -NoNewWindow
 
 if ($InstallProcess.ExitCode -eq 0 -or $InstallProcess.ExitCode -eq 3010) {
-    Write-Host "  [OK] OMS Agent installed successfully" -ForegroundColor Green
+    Write-Log "[OK] OMS Agent installed successfully"
     $script:InstalledComponents++
 } else {
     throw "OMS Agent installation failed with exit code: $($InstallProcess.ExitCode)"
 }
 
 # Wait for service to start
-Write-Host "Waiting for HealthService to start..." -ForegroundColor Yellow
+Write-Log "Waiting for HealthService to start..."
 $Timeout = 60
 $Elapsed = 0
 do {
@@ -153,14 +162,14 @@ do {
 } while ((-not $Service -or $Service.Status -ne 'Running') -and $Elapsed -lt $Timeout)
 
 if ($Service.Status -eq 'Running') {
-    Write-Host "  [OK] HealthService running" -ForegroundColor Green
+    Write-Log "[OK] HealthService running"
 } else {
-    Write-Warning "HealthService did not start within timeout"
+    Write-Log "HealthService did not start within timeout" -Level WARN
 }
 
 # Configure container monitoring
 if ($MonitorDocker) {
-    Write-Host "`nConfiguring Docker monitoring..." -ForegroundColor Yellow
+    Write-Log "Configuring Docker monitoring..."
     
     # Create Docker monitoring configuration
     $DockerConfig = @{
@@ -181,25 +190,25 @@ if ($MonitorDocker) {
     $ConfigPath = "C:\Program Files\Microsoft Monitoring Agent\Agent\Health Service State\Monitoring Host Temporary Files 6\Container.config"
     $DockerConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $ConfigPath -Encoding utf8 -Force
     
-    Write-Host "  [OK] Docker monitoring configured" -ForegroundColor Green
+    Write-Log "[OK] Docker monitoring configured"
     $script:ConfiguredMonitors++
     $script:CollectionRules += 3
 }
 
 if ($MonitorContainerd) {
-    Write-Host "`nConfiguring containerd monitoring..." -ForegroundColor Yellow
+    Write-Log "Configuring containerd monitoring..."
     
     # Configure containerd metrics endpoint
     $MetricsPort = 1338
     New-NetFirewallRule -Name "Containerd-Metrics" -DisplayName "Containerd Metrics" `
         -Protocol TCP -LocalPort $MetricsPort -Action Allow -Enabled True -ErrorAction SilentlyContinue
     
-    Write-Host "  [OK] containerd monitoring configured" -ForegroundColor Green
+    Write-Log "[OK] containerd monitoring configured"
     $script:ConfiguredMonitors++
 }
 
 # Configure performance counters
-Write-Host "`nConfiguring performance counters..." -ForegroundColor Yellow
+Write-Log "Configuring performance counters..."
 $Counters = @(
     "\Container(*)\*",
     "\Process(*)\*",
@@ -212,17 +221,17 @@ $AgentPath = "C:\Program Files\Microsoft Monitoring Agent\Agent"
 $ConfigTool = Join-Path $AgentPath "TestCloudConnection.exe"
 
 if (Test-Path $ConfigTool) {
-    Write-Host "  Verifying workspace connectivity..." -ForegroundColor Cyan
+    Write-Log "Verifying workspace connectivity..."
     $TestResult = & $ConfigTool -WorkspaceId $WorkspaceId
     if ($TestResult -match "success|connected") {
-        Write-Host "  [OK] Workspace connection verified" -ForegroundColor Green
+        Write-Log "[OK] Workspace connection verified"
     }
 }
 
 $script:CollectionRules += $Counters.Count
 
 # Create custom monitoring queries
-Write-Host "`nCreating monitoring queries documentation..." -ForegroundColor Yellow
+Write-Log "Creating monitoring queries documentation..."
 $QueriesDoc = @"
 # Container Insights Queries for Windows
 
@@ -263,15 +272,15 @@ Perf
 
 $QueriesPath = Join-Path $LogPath "ContainerInsights-Queries.md"
 $QueriesDoc | Out-File -FilePath $QueriesPath -Encoding utf8
-Write-Host "  [OK] Queries saved to: $QueriesPath" -ForegroundColor Green
+Write-Log "[OK] Queries saved to: $QueriesPath"
 
 # Restart monitoring service
-Write-Host "`nRestarting monitoring services..." -ForegroundColor Yellow
+Write-Log "Restarting monitoring services..."
 Restart-Service HealthService -Force
 Start-Sleep -Seconds 10
 
 # Verify installation
-Write-Host "`nVerifying installation..." -ForegroundColor Yellow
+Write-Log "Verifying installation..."
 $VerificationChecks = @()
 
 # Check OMS Agent
@@ -303,26 +312,11 @@ if ($MonitorContainerd) {
 }
 
 # Summary report
-Write-Host "`n=== Container Insights Installation Summary ===" -ForegroundColor Cyan
-Write-Host "Workspace ID: $($WorkspaceId.Substring(0, 8))..." -ForegroundColor Gray
-Write-Host "Computer Name: $env:COMPUTERNAME" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Statistics:" -ForegroundColor Yellow
-Write-Host "  Installed Components: $script:InstalledComponents" -ForegroundColor Gray
-Write-Host "  Configured Monitors: $script:ConfiguredMonitors" -ForegroundColor Gray
-Write-Host "  Collection Rules: $script:CollectionRules" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Verification:" -ForegroundColor Yellow
+Write-Log "Statistics: InstalledComponents=$script:InstalledComponents ConfiguredMonitors=$script:ConfiguredMonitors CollectionRules=$script:CollectionRules"
+Write-Log "Computer Name: $env:COMPUTERNAME"
+Write-Log "Verification:"
 $VerificationChecks | Format-Table -AutoSize
 
-Write-Host "`nNext Steps:" -ForegroundColor Yellow
-Write-Host "1. Wait 5-10 minutes for data to appear in Azure Portal" -ForegroundColor Gray
-Write-Host "2. Open Azure Portal > Monitor > Containers" -ForegroundColor Gray
-Write-Host "3. Use queries in: $QueriesPath" -ForegroundColor Gray
-Write-Host "4. Configure alerts and dashboards as needed" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Documentation: https://docs.microsoft.com/azure/azure-monitor/containers/containers" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Installation completed successfully!" -ForegroundColor Green
-
+Write-Log "===== Install_Container_Insights complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 Stop-Transcript
+exit 0

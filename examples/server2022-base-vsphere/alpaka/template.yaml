@@ -1,0 +1,120 @@
+# Windows Server 2022 — vSphere base golden image (alpaka v6 / vsphere-iso).
+#
+# Builds a clean, patched, optimized and generalized Server 2022 Standard template on vCenter from
+# the install ISO, using the repo's Server 2022 vSphere Autounattend answer file.
+#
+# Script paths below are resolved by alpaka INSIDE this template directory. Vendor them first:
+# `pwsh examples/sync-demo-scripts.ps1 -Set server2022-base-vsphere`.
+version: "2.0"
+description: "Windows Server 2022 Standard vsphere-iso base golden image"
+
+variables:
+  vcenter_server: "{{env `VSPHERE_SERVER`}}"
+  datacenter: "{{env `VSPHERE_DATACENTER`}}"
+  cluster: "{{env `VSPHERE_CLUSTER`}}"
+  datastore: "{{env `VSPHERE_DATASTORE`}}"
+  vm_name: "server2022-base"
+
+sensitive_variables:
+  - winrm_password
+
+target_platforms:
+  - name: "server2022-base-vsphere"
+    type: "vsphere-iso"
+    # --- vCenter connection ---
+    vcenter_server: "{{ vcenter_server }}"
+    username: "{{env `VSPHERE_USERNAME`}}"
+    password: "{{env `VSPHERE_PASSWORD`}}"
+    insecure_connection: true
+    datacenter: "{{ datacenter }}"
+    cluster: "{{ cluster }}"
+    datastore: "{{ datastore }}"
+
+    # --- ISO source (supply via env) ---
+    iso_paths:
+      - "{{env `VSPHERE_ISO_PATH`}}"
+    iso_checksum: "{{env `VSPHERE_ISO_CHECKSUM`}}"
+
+    # --- VM hardware ---
+    guest_os_type: "windows2019srvNext_64Guest"
+    vm_name: "{{ vm_name }}"
+    folder: "Templates"
+    cpus: 4
+    cpu_cores: 2
+    ram: 8192
+    disk_size: 61440
+    disk_thin_provisioned: true
+    disk_controller_type: "pvscsi"
+    network: "VM Network"
+    network_adapter_type: "vmxnet3"
+    firmware: "efi"
+    vtpm: true
+
+    # --- Autounattend (Server 2022 Standard, vSphere) attached via floppy ---
+    floppy_files:
+      - "../../../autounattend/2022/vsphere/Autounattend-Standard.xml"
+
+    boot_order: "disk,cdrom"
+    boot_command:
+      - "<spacebar>"
+    boot_wait: "3s"
+
+    # --- WinRM (provisioning connection) ---
+    connection: "winrm"
+    winrm_username: "Administrator"
+    winrm_password: "{{env `VSPHERE_WIN_ADMIN_PASSWORD`}}"
+    winrm_port: 5986
+    winrm_use_ssl: true
+    winrm_insecure: true
+    winrm_timeout: "30m"
+
+    shutdown_command: "shutdown /s /t 10 /f /d p:4:1 /c \"Alpaka Shutdown\""
+    shutdown_timeout: "15m"
+
+    # --- Output: reusable vSphere template ---
+    convert_to_template: true
+    remove_cdrom: true
+
+actions:
+  - type: windows-update
+    name: patch
+    timeout: "60m"
+
+  - type: powershell
+    name: optimize-system
+    script: "scripts/windows-server-Optimize_System.ps1"
+    timeout: "15m"
+
+  - type: powershell
+    name: cleanup
+    script: "scripts/windows-server-Cleanup_Temporary_Files.ps1"
+    timeout: "15m"
+
+  # --- stage + run Pester before sysprep (a failed test aborts the build) ---
+  - type: file
+    name: stage-tests
+    source: "../tests/Server2022Base.Tests.ps1"
+    destination: "C:/Alpaka/Tests/Server2022Base.Tests.ps1"
+    direction: "upload"
+
+  - type: powershell
+    name: pester-validate
+    timeout: "20m"
+    inline:
+      - "Set-ExecutionPolicy Bypass -Scope Process -Force; [Net.ServicePointManager]::SecurityProtocol=3072; Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null; if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'5.0.0' })) { Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope AllUsers }; Import-Module Pester -MinimumVersion 5.0.0 -Force; $cfg = New-PesterConfiguration; $cfg.Run.Path='C:\\Alpaka\\Tests'; $cfg.Run.PassThru=$true; $cfg.Output.Verbosity='Detailed'; $r=Invoke-Pester -Configuration $cfg; if ($r.FailedCount -gt 0) { throw (\"Pester: {0}/{1} tests failed\" -f $r.FailedCount,$r.TotalCount) }"
+
+  - type: powershell
+    name: sysprep-generalize
+    script: "scripts/windows-server-Invoke_Sysprep.ps1"
+    timeout: "30m"
+    environment:
+      SYSPREP_VMMODE: "1"
+      SYSPREP_MODE: "OOBE"
+      SYSPREP_SHUTDOWN: "Shutdown"
+    valid_exit_codes: [0, 3010]
+
+post_build:
+  - name: "manifest"
+    type: "manifest"
+    output: "server2022-base-vsphere-manifest.json"
+    strip_path: true

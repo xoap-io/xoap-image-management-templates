@@ -77,30 +77,25 @@ $script:InstallationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+$script:Component = 'Splunk'
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    # Ensure log directory exists
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+
+    $line = "[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message
+    Write-Host $line
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [Splunk] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 function Test-IsAdministrator {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -134,7 +129,7 @@ function Get-SplunkDownloadUrl {
 }
 
 function Install-SplunkForwarder {
-    Write-LogMessage "Starting Splunk Universal Forwarder installation..." -Level Info
+    Write-Log "Starting Splunk Universal Forwarder installation..." -Level INFO
     
     try {
         # Create temp directory
@@ -145,14 +140,14 @@ function Install-SplunkForwarder {
         # Generate password if not provided
         if (-not $SplunkPassword) {
             $script:SplunkPassword = Get-RandomPassword
-            Write-LogMessage "Generated random admin password" -Level Info
+            Write-Log "Generated random admin password" -Level INFO
         }
         
         # Download installer
         $downloadUrl = Get-SplunkDownloadUrl -Version $SplunkVersion -Build $Build
         $installerPath = Join-Path $TempDir "splunkforwarder.msi"
         
-        Write-LogMessage "Downloading Splunk Universal Forwarder from $downloadUrl" -Level Info
+        Write-Log "Downloading Splunk Universal Forwarder from $downloadUrl" -Level INFO
         
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -161,8 +156,8 @@ function Install-SplunkForwarder {
             $webClient.Dispose()
         }
         catch {
-            Write-LogMessage "Failed to download from official source: $($_.Exception.Message)" -Level Warning
-            Write-LogMessage "Please download manually from: https://www.splunk.com/en_us/download/universal-forwarder.html" -Level Warning
+            Write-Log "Failed to download from official source: $($_.Exception.Message)" -Level WARN
+            Write-Log "Please download manually from: https://www.splunk.com/en_us/download/universal-forwarder.html" -Level WARN
             throw "Download failed. Manual installation required."
         }
         
@@ -170,7 +165,7 @@ function Install-SplunkForwarder {
             throw "Installer not found at $installerPath"
         }
         
-        Write-LogMessage "Installer downloaded successfully" -Level Success
+        Write-Log "Installer downloaded successfully" -Level INFO
         
         # Prepare installation arguments
         $installArgs = @(
@@ -195,60 +190,60 @@ function Install-SplunkForwarder {
         
         $installArgString = $installArgs -join ' '
         
-        Write-LogMessage "Installing Splunk Universal Forwarder..." -Level Info
-        Write-LogMessage "Installation command: msiexec.exe $installArgString" -Level Info
+        Write-Log "Installing Splunk Universal Forwarder..." -Level INFO
+        Write-Log "Installation command: msiexec.exe $installArgString" -Level INFO
         
         $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $installArgString -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
-            Write-LogMessage "Splunk Universal Forwarder installed successfully (Exit Code: $($process.ExitCode))" -Level Success
+            Write-Log "Splunk Universal Forwarder installed successfully (Exit Code: $($process.ExitCode))" -Level INFO
             $script:ComponentsInstalled++
             return $true
         }
         else {
-            Write-LogMessage "Installation failed with exit code: $($process.ExitCode)" -Level Error
+            Write-Log "Installation failed with exit code: $($process.ExitCode)" -Level ERROR
             $script:InstallationsFailed++
             return $false
         }
     }
     catch {
-        Write-LogMessage "Error during installation: $($_.Exception.Message)" -Level Error
+        Write-Log "Error during installation: $($_.Exception.Message)" -Level ERROR
         $script:InstallationsFailed++
         return $false
     }
 }
 
 function Configure-SplunkForwarder {
-    Write-LogMessage "Configuring Splunk Universal Forwarder..." -Level Info
+    Write-Log "Configuring Splunk Universal Forwarder..." -Level INFO
     
     if (-not (Test-Path $SplunkBin)) {
-        Write-LogMessage "Splunk binary not found at $SplunkBin" -Level Error
+        Write-Log "Splunk binary not found at $SplunkBin" -Level ERROR
         return $false
     }
     
     try {
         # Accept license
-        Write-LogMessage "Accepting Splunk license..." -Level Info
+        Write-Log "Accepting Splunk license..." -Level INFO
         $result = & $SplunkBin start --accept-license --answer-yes --no-prompt 2>&1
         
         Start-Sleep -Seconds 10
         
         # Stop Splunk to configure
-        Write-LogMessage "Stopping Splunk for configuration..." -Level Info
+        Write-Log "Stopping Splunk for configuration..." -Level INFO
         & $SplunkBin stop 2>&1 | Out-Null
         
         Start-Sleep -Seconds 5
         
         # Configure deployment server if specified
         if ($DeploymentServer) {
-            Write-LogMessage "Setting deployment server to: $DeploymentServer" -Level Info
+            Write-Log "Setting deployment server to: $DeploymentServer" -Level INFO
             & $SplunkBin set deploy-poll $DeploymentServer -auth "${SplunkAdmin}:${SplunkPassword}" 2>&1 | Out-Null
             $script:ConfigurationsApplied++
         }
         
         # Configure forwarding if specified
         if ($IndexerAddress) {
-            Write-LogMessage "Setting receiving indexer to: $IndexerAddress" -Level Info
+            Write-Log "Setting receiving indexer to: $IndexerAddress" -Level INFO
             & $SplunkBin add forward-server $IndexerAddress -auth "${SplunkAdmin}:${SplunkPassword}" 2>&1 | Out-Null
             $script:ConfigurationsApplied++
         }
@@ -309,7 +304,7 @@ disabled = 0
         }
         
         Set-Content -Path $inputsConf -Value $inputsConfig -Force
-        Write-LogMessage "Configured Windows event log and performance monitoring inputs" -Level Success
+        Write-Log "Configured Windows event log and performance monitoring inputs" -Level INFO
         $script:ConfigurationsApplied++
         
         # Configure outputs for SSL if indexer specified
@@ -327,47 +322,47 @@ compressed = true
 [tcpout-server://$IndexerAddress]
 "@
             Set-Content -Path $outputsConf -Value $outputsConfig -Force
-            Write-LogMessage "Configured output forwarding" -Level Success
+            Write-Log "Configured output forwarding" -Level INFO
             $script:ConfigurationsApplied++
         }
         
         # Set Splunk as service to start automatically or disabled based on parameter
         if ($DisableBootStart) {
-            Write-LogMessage "Disabling Splunk service auto-start (image preparation mode)" -Level Info
+            Write-Log "Disabling Splunk service auto-start (image preparation mode)" -Level INFO
             Set-Service -Name "SplunkForwarder" -StartupType Disabled -ErrorAction SilentlyContinue
         }
         else {
-            Write-LogMessage "Enabling Splunk service..." -Level Info
+            Write-Log "Enabling Splunk service..." -Level INFO
             & $SplunkBin enable boot-start -user $SplunkAdmin -auth "${SplunkAdmin}:${SplunkPassword}" 2>&1 | Out-Null
             Set-Service -Name "SplunkForwarder" -StartupType Automatic -ErrorAction SilentlyContinue
         }
         
-        Write-LogMessage "Splunk Universal Forwarder configured successfully" -Level Success
+        Write-Log "Splunk Universal Forwarder configured successfully" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error during configuration: $($_.Exception.Message)" -Level Error
+        Write-Log "Error during configuration: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Test-SplunkConfiguration {
-    Write-LogMessage "Verifying Splunk configuration..." -Level Info
+    Write-Log "Verifying Splunk configuration..." -Level INFO
     
     try {
         $service = Get-Service -Name "SplunkForwarder" -ErrorAction SilentlyContinue
         
         if ($service) {
-            Write-LogMessage "Splunk service found: $($service.Status)" -Level Success
+            Write-Log "Splunk service found: $($service.Status)" -Level INFO
             
             if (-not $DisableBootStart) {
                 if ($service.StartType -ne 'Automatic') {
-                    Write-LogMessage "Warning: Service startup type is not Automatic" -Level Warning
+                    Write-Log "Warning: Service startup type is not Automatic" -Level WARN
                 }
             }
         }
         else {
-            Write-LogMessage "Splunk service not found" -Level Warning
+            Write-Log "Splunk service not found" -Level WARN
         }
         
         # Check configuration files
@@ -378,20 +373,20 @@ function Test-SplunkConfiguration {
         
         foreach ($file in $configFiles) {
             if (Test-Path $file) {
-                Write-LogMessage "Configuration file exists: $file" -Level Info
+                Write-Log "Configuration file exists: $file" -Level INFO
             }
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "Error during verification: $($_.Exception.Message)" -Level Error
+        Write-Log "Error during verification: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Save-SplunkCredentials {
-    Write-LogMessage "Saving Splunk credentials for reference..." -Level Info
+    Write-Log "Saving Splunk credentials for reference..." -Level INFO
     
     try {
         $credFile = Join-Path $LogDir "splunk-credentials-$timestamp.txt"
@@ -420,25 +415,25 @@ This file is created for initial setup reference only.
         $acl.SetAccessRule($adminRule)
         Set-Acl -Path $credFile -AclObject $acl
         
-        Write-LogMessage "Credentials saved to: $credFile" -Level Success
-        Write-LogMessage "WARNING: Delete this file after recording credentials!" -Level Warning
+        Write-Log "Credentials saved to: $credFile" -Level INFO
+        Write-Log "WARNING: Delete this file after recording credentials!" -Level WARN
     }
     catch {
-        Write-LogMessage "Could not save credentials file: $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not save credentials file: $($_.Exception.Message)" -Level WARN
     }
 }
 
 function Remove-SplunkInstaller {
-    Write-LogMessage "Cleaning up installation files..." -Level Info
+    Write-Log "Cleaning up installation files..." -Level INFO
     
     try {
         if (Test-Path $TempDir) {
             Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-LogMessage "Temporary files cleaned up" -Level Success
+            Write-Log "Temporary files cleaned up" -Level INFO
         }
     }
     catch {
-        Write-LogMessage "Could not clean up temp directory: $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not clean up temp directory: $($_.Exception.Message)" -Level WARN
     }
 }
 
@@ -448,26 +443,20 @@ function Remove-SplunkInstaller {
 
 function Main {
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Splunk Universal Forwarder Installation" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Version: $SplunkVersion" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Install_Splunk_Forwarder starting (Version=$SplunkVersion) ====="
+    Write-Log "Log File: $LogFile"
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
     # Check if already installed
     if (Test-SplunkInstalled) {
-        Write-LogMessage "Splunk Universal Forwarder is already installed at $SplunkHome" -Level Warning
-        Write-LogMessage "Skipping installation. If reconfiguration is needed, uninstall first." -Level Warning
+        Write-Log "Splunk Universal Forwarder is already installed at $SplunkHome" -Level WARN
+        Write-Log "Skipping installation. If reconfiguration is needed, uninstall first." -Level WARN
         exit 0
     }
     
@@ -475,7 +464,7 @@ function Main {
     $installSuccess = Install-SplunkForwarder
     
     if (-not $installSuccess) {
-        Write-LogMessage "Installation failed. Check logs for details." -Level Error
+        Write-Log "Installation failed. Check logs for details." -Level ERROR
         exit 1
     }
     
@@ -483,7 +472,7 @@ function Main {
     $configSuccess = Configure-SplunkForwarder
     
     if (-not $configSuccess) {
-        Write-LogMessage "Configuration completed with warnings. Check logs for details." -Level Warning
+        Write-Log "Configuration completed with warnings. Check logs for details." -Level WARN
     }
     
     # Verify installation
@@ -495,26 +484,12 @@ function Main {
     # Cleanup
     Remove-SplunkInstaller
     
-    # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Installation Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Components Installed: $script:ComponentsInstalled" -Level Info
-    Write-LogMessage "Configurations Applied: $script:ConfigurationsApplied" -Level Info
-    Write-LogMessage "Installation Failures: $script:InstallationsFailed" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
     if ($script:InstallationsFailed -eq 0) {
-        Write-LogMessage "Splunk Universal Forwarder installation completed successfully!" -Level Success
+        Write-Log "===== Install_Splunk_Forwarder complete in $([int]((Get-Date) - $scriptStartTime).TotalSeconds)s; applied=$script:ConfigurationsApplied failed=$script:InstallationsFailed ====="
         exit 0
     }
     else {
-        Write-LogMessage "Installation completed with errors. Check logs." -Level Warning
+        Write-Log "Installation completed with errors. Check logs." -Level WARN
         exit 1
     }
 }
@@ -524,9 +499,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

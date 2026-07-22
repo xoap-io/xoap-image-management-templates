@@ -97,7 +97,7 @@ wait_for_apt
 log_info "Updating package lists from repositories..."
 
 if apt-get update 2>&1 | tee /tmp/apt_update.log; then
-    log_info "✓ Package lists updated successfully"
+    log_info "[OK] Package lists updated successfully"
     
     # Count available upgrades
     UPGRADABLE=$(apt list --upgradable 2>/dev/null | grep -c 'upgradable' || echo "0")
@@ -116,7 +116,7 @@ if apt-get upgrade -y 2>&1 | tee /tmp/apt_upgrade.log; then
     PACKAGES_INSTALLED=$(grep -oP '\d+(?= newly installed)' /tmp/apt_upgrade.log | head -1 || echo "0")
     PACKAGES_REMOVED=$(grep -oP '\d+(?= to remove)' /tmp/apt_upgrade.log | head -1 || echo "0")
     
-    log_info "✓ Package upgrade completed"
+    log_info "[OK] Package upgrade completed"
     log_info "  Upgraded: $PACKAGES_UPGRADED packages"
     log_info "  Newly installed: $PACKAGES_INSTALLED packages"
     log_info "  Removed: $PACKAGES_REMOVED packages"
@@ -130,7 +130,7 @@ if [[ "$DIST_UPGRADE" == true ]]; then
     log_info "Performing distribution upgrade (dist-upgrade)..."
     
     if apt-get dist-upgrade -y 2>&1 | tee /tmp/apt_dist_upgrade.log; then
-        log_info "✓ Distribution upgrade completed"
+        log_info "[OK] Distribution upgrade completed"
         
         # Check for additional packages upgraded during dist-upgrade
         DIST_UPGRADED=$(grep -oP '\d+(?= upgraded)' /tmp/apt_dist_upgrade.log | head -1 || echo "0")
@@ -150,7 +150,7 @@ AUTOREMOVE_OUTPUT=$(apt-get autoremove --purge -y 2>&1 | tee /tmp/apt_autoremove
 AUTOREMOVE_COUNT=$(echo "$AUTOREMOVE_OUTPUT" | grep -oP '\d+(?= to remove)' || echo "0")
 
 if [[ -n "$AUTOREMOVE_COUNT" ]] && [[ "$AUTOREMOVE_COUNT" -gt 0 ]]; then
-    log_info "✓ Removed $AUTOREMOVE_COUNT unused packages"
+    log_info "[OK] Removed $AUTOREMOVE_COUNT unused packages"
     PACKAGES_REMOVED=$((PACKAGES_REMOVED + AUTOREMOVE_COUNT))
 else
     log_info "No unused packages to remove"
@@ -162,13 +162,13 @@ log_info "Cleaning package cache..."
 apt-get clean
 
 CACHE_SIZE=$(du -sh /var/cache/apt/archives 2>/dev/null | awk '{print $1}')
-log_info "✓ Package cache cleaned (current size: $CACHE_SIZE)"
+log_info "[OK] Package cache cleaned (current size: $CACHE_SIZE)"
 
 # Check if reboot is required
 log_info "Checking if reboot is required..."
 
 if [[ -f /var/run/reboot-required ]]; then
-    log_warn "⚠ REBOOT REQUIRED"
+    log_warn "[WARN] REBOOT REQUIRED"
     
     if [[ -f /var/run/reboot-required.pkgs ]]; then
         log_info "Packages requiring reboot:"
@@ -177,7 +177,7 @@ if [[ -f /var/run/reboot-required ]]; then
         done
     fi
 else
-    log_info "✓ No reboot required"
+    log_info "[OK] No reboot required"
 fi
 
 # Get final system state

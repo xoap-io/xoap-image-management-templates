@@ -1,0 +1,22 @@
+# Code owners for xoap-image-management-templates
+# See https://docs.github.com/articles/about-code-owners
+# Order matters: the last matching pattern takes precedence.
+
+# Default owners for everything in the repo
+*                       @ssokolic @xoap-io
+
+# Packer templates
+/packer-hcl/            @ssokolic @xoap-io
+/templates/             @ssokolic @xoap-io
+
+# Provisioning scripts
+/scripts/               @ssokolic @xoap-io
+
+# Unattended install answer files
+/autounattend/          @ssokolic @xoap-io
+
+# Infrastructure-as-code deploy helpers
+/opentofu/              @ssokolic @xoap-io
+
+# CI / repo automation
+/.github/               @ssokolic @xoap-io

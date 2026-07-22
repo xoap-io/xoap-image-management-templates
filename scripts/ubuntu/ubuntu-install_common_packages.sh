@@ -130,17 +130,17 @@ log_info "Installing ${#ALL_PACKAGES[@]} packages..."
 for package in "${ALL_PACKAGES[@]}"; do
     # Check if package is already installed
     if dpkg -l | grep -q "^ii  $package "; then
-        log_info "  ○ $package already installed"
+        log_info "  o $package already installed"
         continue
     fi
     
     log_info "  Installing $package..."
     
     if DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" &>/tmp/apt-install-${package}.log; then
-        log_info "    ✓ Installed $package"
+        log_info "    [OK] Installed $package"
         ((PACKAGES_INSTALLED++))
     else
-        log_warn "    ✗ Failed to install $package"
+        log_warn "    [FAIL] Failed to install $package"
         ((PACKAGES_FAILED++))
         tail -n 5 /tmp/apt-install-${package}.log | while IFS= read -r line; do
             log_warn "      $line"
@@ -165,10 +165,10 @@ VERIFICATION_FAILED=0
 for package in "${CRITICAL_PACKAGES[@]}"; do
     if dpkg -l | grep -q "^ii  $package "; then
         VERSION=$(dpkg -l "$package" | grep "^ii" | awk '{print $3}')
-        log_info "  ✓ $package ($VERSION)"
+        log_info "  [OK] $package ($VERSION)"
         ((VERIFICATION_PASSED++))
     else
-        log_warn "  ✗ $package not installed"
+        log_warn "  [FAIL] $package not installed"
         ((VERIFICATION_FAILED++))
     fi
 done

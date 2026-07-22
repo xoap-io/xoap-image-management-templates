@@ -181,7 +181,7 @@ net.ipv4.tcp_sack = 1
 net.ipv4.tcp_slow_start_after_idle = 0
 EOF
 
-log_info "✓ Hardening configuration created"
+log_info "[OK] Hardening configuration created"
 ((PARAMETERS_SET++))
 
 # Count parameters
@@ -192,7 +192,7 @@ log_info "Configuration contains $PARAM_COUNT parameters"
 log_info "Applying sysctl settings..."
 
 if sysctl --system &>/tmp/sysctl-apply.log; then
-    log_info "✓ Sysctl settings applied successfully"
+    log_info "[OK] Sysctl settings applied successfully"
     ((PARAMETERS_SET++))
 else
     log_error "Failed to apply some sysctl settings"
@@ -215,10 +215,10 @@ verify_setting() {
     actual=$(sysctl -n "$setting" 2>/dev/null || echo "ERROR")
     
     if [[ "$actual" == "$expected" ]]; then
-        log_info "  ✓ $setting = $actual"
+        log_info "  [OK] $setting = $actual"
         ((VERIFICATION_PASSED++))
     else
-        log_warn "  ✗ $setting = $actual (expected: $expected)"
+        log_warn "  [FAIL] $setting = $actual (expected: $expected)"
         ((VERIFICATION_FAILED++))
     fi
 }
