@@ -149,11 +149,13 @@ jobs:
           $errors = 0
           foreach ($script in $scripts) {
             try {
+              $parseErrors = $null
               $null = [System.Management.Automation.PSParser]::Tokenize(
-                (Get-Content $script.FullName -Raw), 
+                (Get-Content $script.FullName -Raw),
                 [ref]$parseErrors
               )
               if ($parseErrors.Count -gt 0) {
+                Write-Host "::error file=$($script.FullName)::Syntax errors found"
                 $errors++
               }
             } catch {
