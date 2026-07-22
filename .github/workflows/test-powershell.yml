@@ -71,7 +71,15 @@ jobs:
         shell: pwsh
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
+          # NuGet provider is built into PowerShell 7; only bootstrap it if absent
+          # (Install-PackageProvider hard-fails on pwsh 7 where the provider already exists).
+          try {
+            if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction Stop | Out-Null
+            }
+          } catch {
+            Write-Host "NuGet provider bootstrap skipped: $_"
+          }
           if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
             Register-PSRepository -Default
           }
