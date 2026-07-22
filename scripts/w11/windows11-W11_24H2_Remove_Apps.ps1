@@ -6,51 +6,119 @@
     Removes provisioned and installed Windows 11 24H2 Appx packages for clean imaging.
     Disables Microsoft Consumer Experience features and removes bloatware.
 
+    WARNING: Removing certain inbox apps makes an image UNSUPPORTED for Windows 365 /
+    CloudPC. Use the -CloudPCSafe switch (or set CLOUDPC_SAFE=1) to exclude the
+    Windows 365-required inbox apps from removal. Run
+    windows11-Validate_CloudPC_Image.ps1 afterwards to confirm the image is still
+    CloudPC-compliant.
+
+.PARAMETER CloudPCSafe
+    When set, EXCLUDES the Windows 365-required inbox apps from removal
+    (Microsoft.WindowsStore, Microsoft.DesktopAppInstaller, Microsoft.SecHealthUI,
+    Microsoft.Windows.Photos, Microsoft.WindowsNotepad, Microsoft.Paint and the Store
+    dependency packages). Default off. Overridable via env CLOUDPC_SAFE=1.
+
 .NOTES
     File Name      : windows11-W11_24H2_Remove_Apps.ps1
     Prerequisite   : PowerShell 5.1 or higher, Administrator privileges
     Copyright      : XOAP.io
-    
+
 .EXAMPLE
     .\windows11-W11_24H2_Remove_Apps.ps1
     Removes Windows 11 24H2 built-in apps
+
+.EXAMPLE
+    .\windows11-W11_24H2_Remove_Apps.ps1 -CloudPCSafe
+    Removes built-in apps but keeps the Windows 365 CloudPC-required inbox apps.
 #>
 
 [CmdletBinding()]
-param()
+param(
+    [switch]$CloudPCSafe = [bool]$env:CLOUDPC_SAFE
+)
 
 Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
-function Log {
-    param([string]$msg)
-    Write-Host "[W11-24H2-REMOVE] $msg"
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [W11-24H2-Remove] Transcript unavailable: $($_.Exception.Message)" }
+
+function Write-Log {
+    param(
+        [string]$Message,
+
+        [ValidateSet('INFO','WARN','ERROR')]
+        [string]$Level = 'INFO'
+    )
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    Write-Host "[$timestamp] [$Level] [W11-24H2-Remove] $Message"
+}
+
+# Windows 365 / CloudPC-required inbox apps and Store dependencies that must remain
+# provisioned for a supported custom image. Excluded from removal when -CloudPCSafe.
+$script:CloudPCRequiredApps = @(
+    'Microsoft.WindowsStore',
+    'Microsoft.DesktopAppInstaller',
+    'Microsoft.SecHealthUI',
+    'Microsoft.Windows.Photos',
+    'Microsoft.WindowsNotepad',
+    'Microsoft.Paint',
+    'Microsoft.StorePurchaseApp',
+    'Microsoft.Services.Store.Engagement',
+    'Microsoft.VCLibs.140.00',
+    'Microsoft.NET.Native.Framework',
+    'Microsoft.NET.Native.Runtime',
+    'Microsoft.UI.Xaml'
+)
+
+function Test-CloudPCRequired {
+    param([string]$Name)
+    if (-not $CloudPCSafe) { return $false }
+    foreach ($req in $script:CloudPCRequiredApps) {
+        if ($Name -eq $req -or $Name -like "$req*") { return $true }
+    }
+    return $false
+}
+
+$startTime = Get-Date
+Write-Log "===== W11_24H2_Remove_Apps starting (CloudPCSafe=$CloudPCSafe) ====="
+
+if ($CloudPCSafe) {
+    Write-Log 'CloudPCSafe enabled: Windows 365-required inbox apps will be skipped.'
 }
 
 trap {
-    Log "ERROR: $_"
-    Log (($_.ScriptStackTrace -split '\r?\n') -replace '^(.*)$','ERROR: $1')
-    Log (($_.Exception.ToString() -split '\r?\n') -replace '^(.*)$','ERROR EXCEPTION: $1')
-    Log 'Sleeping for 60m to give you time to look around the virtual machine before self-destruction...'
-    Start-Sleep -Seconds (60*60)
+    Write-Log "ERROR: $_"
+    Write-Log (($_.ScriptStackTrace -split '\r?\n') -replace '^(.*)$','ERROR: $1')
+    Write-Log (($_.Exception.ToString() -split '\r?\n') -replace '^(.*)$','ERROR EXCEPTION: $1')
+    try { Stop-Transcript | Out-Null } catch {}
     Exit 1
 }
 
-Log 'Disabling the Microsoft Consumer Experience...'
+Write-Log 'Disabling the Microsoft Consumer Experience...'
 try {
     mkdir -Force 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' | Set-ItemProperty -Name DisableWindowsConsumerFeatures -Value 1
 } catch {
-    Log "Warning: Could not set Consumer Experience policy: $($_.Exception.Message)"
+    Write-Log "Warning: Could not set Consumer Experience policy: $($_.Exception.Message)"
 }
 
 # Remove all the provisioned appx packages.
 Get-AppXProvisionedPackage -Online | ForEach-Object {
-    Log "Removing the $($_.PackageName) provisioned appx package..."
+    if (Test-CloudPCRequired -Name $_.DisplayName) {
+        Write-Log "Skipping CloudPC-required provisioned appx package: $($_.DisplayName)"
+        return
+    }
+    Write-Log "Removing the $($_.PackageName) provisioned appx package..."
     try {
         $_ | Remove-AppxProvisionedPackage -Online | Out-Null
     } catch {
-        Log "WARN Failed to remove appx: $_"
+        Write-Log "WARN Failed to remove appx: $_"
     }
 }
 
@@ -117,13 +185,21 @@ Get-AppXProvisionedPackage -Online | ForEach-Object {
     'Microsoft.Windows.DevHome.DevHomeWebViewCX', 'Microsoft.Windows.DevHome.DevHomeWebViewCY',
     'Microsoft.Windows.DevHome.DevHomeWebViewCZ'
 ) | ForEach-Object {
+    if (Test-CloudPCRequired -Name $_) {
+        Write-Log "Skipping CloudPC-required appx package: $_"
+        return
+    }
     $appx = Get-AppxPackage -AllUsers $_
     if ($appx) {
-        Log "Removing the $($appx.Name) appx package..."
+        Write-Log "Removing the $($appx.Name) appx package..."
         try {
             $appx | Remove-AppxPackage -AllUsers
         } catch {
-            Log "WARN Failed to remove appx: $_"
+            Write-Log "WARN Failed to remove appx: $_"
         }
     }
 }
+
+Write-Log "===== W11_24H2_Remove_Apps complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+try { Stop-Transcript | Out-Null } catch {}
+exit 0

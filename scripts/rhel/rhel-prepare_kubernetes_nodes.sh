@@ -81,12 +81,12 @@ log_info "Disabling swap..."
 
 if [[ $(swapon --show | wc -l) -gt 0 ]]; then
     swapoff -a
-    log_info "✓ Swap disabled"
+    log_info "[OK] Swap disabled"
     ((CONFIGS_APPLIED++))
     
     # Comment out swap entries in fstab
     sed -i '/swap/s/^/#/' /etc/fstab
-    log_info "✓ Swap entries commented in fstab"
+    log_info "[OK] Swap entries commented in fstab"
 else
     log_info "Swap is already disabled"
 fi
@@ -100,7 +100,7 @@ log_info "Current SELinux mode: $CURRENT_SELINUX"
 if [[ "$CURRENT_SELINUX" != "Permissive" ]] && [[ "$CURRENT_SELINUX" != "Disabled" ]]; then
     setenforce 0
     sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
-    log_info "✓ SELinux set to permissive"
+    log_info "[OK] SELinux set to permissive"
     ((CONFIGS_APPLIED++))
 else
     log_info "SELinux already in permissive or disabled mode"
@@ -120,7 +120,7 @@ EOF
 modprobe overlay
 modprobe br_netfilter
 
-log_info "✓ Kernel modules loaded"
+log_info "[OK] Kernel modules loaded"
 ((CONFIGS_APPLIED++))
 
 # Configure sysctl parameters
@@ -137,7 +137,7 @@ EOF
 
 sysctl --system &>/dev/null || log_warn "Failed to reload sysctl"
 
-log_info "✓ Kernel parameters configured"
+log_info "[OK] Kernel parameters configured"
 ((CONFIGS_APPLIED++))
 
 # Verify kernel parameters
@@ -153,7 +153,7 @@ if systemctl is-active --quiet firewalld; then
     log_info "Disabling firewalld (can be re-enabled with proper K8s rules)..."
     systemctl stop firewalld
     systemctl disable firewalld
-    log_info "✓ Firewalld disabled"
+    log_info "[OK] Firewalld disabled"
     ((CONFIGS_APPLIED++))
 else
     log_info "Firewalld is already disabled"
@@ -186,7 +186,7 @@ case "$CONTAINER_RUNTIME" in
 EOF
         
         systemctl enable --now docker
-        log_info "✓ Docker installed and started"
+        log_info "[OK] Docker installed and started"
         ((CONFIGS_APPLIED++))
         ;;
         
@@ -204,7 +204,7 @@ EOF
         sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
         
         systemctl enable --now containerd
-        log_info "✓ containerd installed and started"
+        log_info "[OK] containerd installed and started"
         ((CONFIGS_APPLIED++))
         ;;
         
@@ -227,7 +227,7 @@ EOF
         $PKG_MGR install -y cri-o
         
         systemctl enable --now crio
-        log_info "✓ CRI-O installed and started"
+        log_info "[OK] CRI-O installed and started"
         ((CONFIGS_APPLIED++))
         ;;
         
@@ -243,7 +243,7 @@ sleep 2
 case "$CONTAINER_RUNTIME" in
     docker)
         if systemctl is-active --quiet docker; then
-            log_info "✓ Docker is running"
+            log_info "[OK] Docker is running"
             docker --version | while IFS= read -r line; do
                 log_info "  $line"
             done
@@ -254,7 +254,7 @@ case "$CONTAINER_RUNTIME" in
         ;;
     containerd)
         if systemctl is-active --quiet containerd; then
-            log_info "✓ containerd is running"
+            log_info "[OK] containerd is running"
             containerd --version | while IFS= read -r line; do
                 log_info "  $line"
             done
@@ -265,7 +265,7 @@ case "$CONTAINER_RUNTIME" in
         ;;
     crio)
         if systemctl is-active --quiet crio; then
-            log_info "✓ CRI-O is running"
+            log_info "[OK] CRI-O is running"
             crio --version | while IFS= read -r line; do
                 log_info "  $line"
             done
@@ -291,14 +291,14 @@ gpgkey=https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/repodata/repomd.xml
 exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
 EOF
 
-log_info "✓ Kubernetes repository added"
+log_info "[OK] Kubernetes repository added"
 ((CONFIGS_APPLIED++))
 
 # Install Kubernetes packages
 log_info "Installing Kubernetes packages..."
 
 if $PKG_MGR install -y kubelet kubeadm kubectl --disableexcludes=kubernetes; then
-    log_info "✓ Kubernetes packages installed"
+    log_info "[OK] Kubernetes packages installed"
     ((CONFIGS_APPLIED++))
 else
     log_error "Failed to install Kubernetes packages"
@@ -308,7 +308,7 @@ fi
 # Enable kubelet (but don't start yet - needs kubeadm init/join)
 systemctl enable kubelet
 
-log_info "✓ kubelet enabled"
+log_info "[OK] kubelet enabled"
 
 # Display installed versions
 log_info "Installed Kubernetes versions:"

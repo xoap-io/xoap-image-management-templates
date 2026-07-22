@@ -169,27 +169,27 @@ else
         log_info "Recommendations:"
         
         if [[ "$SECURITY_UPDATES" -gt 0 ]]; then
-            log_warn "  ⚠ $SECURITY_UPDATES security patches available"
-            log_warn "  ⚠ Apply immediately: ./update_system_suse.sh"
+            log_warn "  [WARN] $SECURITY_UPDATES security patches available"
+            log_warn "  [WARN] Apply immediately: ./update_system_suse.sh"
         fi
         
         if [[ "$KERNEL_UPDATES" -gt 0 ]]; then
-            log_info "  • Kernel updates available"
-            log_info "  • Run: ./update_system_suse.sh"
+            log_info "  * Kernel updates available"
+            log_info "  * Run: ./update_system_suse.sh"
         fi
         
         if [[ "$TOTAL_UPDATES" -gt 0 ]]; then
-            log_info "  • Full system update: ./update_system_suse.sh"
-            log_info "  • Distribution upgrade: ./update_system_suse.sh --dist-upgrade"
+            log_info "  * Full system update: ./update_system_suse.sh"
+            log_info "  * Distribution upgrade: ./update_system_suse.sh --dist-upgrade"
         fi
         
         if [[ "$REBOOT_REQUIRED" == "true" ]]; then
-            log_warn "  ⚠ System reboot required"
+            log_warn "  [WARN] System reboot required"
         fi
     else
         log_info ""
-        log_info "✓ System is up to date"
-        log_info "✓ No updates available"
+        log_info "[OK] System is up to date"
+        log_info "[OK] No updates available"
     fi
 fi
 

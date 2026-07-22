@@ -23,6 +23,14 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [UAC] Transcript unavailable: $($_.Exception.Message)" }
+
 function Write-Log {
     param(
         [Parameter(Mandatory)]
@@ -44,12 +52,13 @@ function Write-Log {
 trap {
     Write-Log "Critical error: $_" -Level Error
     ($_.ScriptStackTrace -split '\r?\n') | ForEach-Object { Write-Log "STACK: $_" -Level Error }
-    Write-Log 'Sleeping for 60m to allow investigation...' -Level Error
-    Start-Sleep -Seconds 3600
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
+    $startTime = Get-Date
+    Write-Log "===== Disable_Windows_UAC starting ====="
     Write-Log "Disabling Windows User Account Control (UAC)..."
     
     $regPath = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System'
@@ -67,8 +76,12 @@ try {
     Set-ItemProperty -Path $regPath -Name LocalAccountTokenFilterPolicy -Type DWORD -Value 1
     
     Write-Log "UAC disabled successfully - restart required for full effect"
-    
+    Write-Log "===== Disable_Windows_UAC complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Failed to disable UAC: $($_.Exception.Message)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

@@ -37,7 +37,7 @@
     Installs only Azure VM Agent and CLI
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -53,9 +53,13 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'azure-tools-install'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [AzureTools] Transcript unavailable: $($_.Exception.Message)" }
 $TempDir = Join-Path $env:TEMP "azure-install-$timestamp"
 
 $script:InstallationsCompleted = 0
@@ -65,23 +69,18 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [AzureTools] $Message"
+    $logMessage = "[$timestamp] [$Level] [AzureTools] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -95,6 +94,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Install_Azure_Tools starting ====="
     
     Write-Log "========================================================="
     Write-Log "Azure Tools and Agents Installation"
@@ -117,13 +117,13 @@ try {
     try {
         $metadata = Invoke-RestMethod -Uri 'http://169.254.169.254/metadata/instance?api-version=2021-02-01' `
             -Headers @{Metadata='true'} -TimeoutSec 2 -ErrorAction Stop
-        Write-Log "✓ Running on Azure VM: $($metadata.compute.vmId)"
+        Write-Log "[OK] Running on Azure VM: $($metadata.compute.vmId)"
         Write-Log "  Location: $($metadata.compute.location)"
         Write-Log "  VM Size: $($metadata.compute.vmSize)"
         $isAzure = $true
     }
     catch {
-        Write-Log "Warning: Not running on Azure VM" -Level Warning
+        Write-Log "Warning: Not running on Azure VM" -Level WARN
     }
     
     # Install Azure VM Agent
@@ -140,7 +140,7 @@ try {
                 Write-Log "  Status: $($waService.Status)"
                 if ($waService.Status -ne 'Running') {
                     Start-Service -Name 'WindowsAzureGuestAgent'
-                    Write-Log "✓ Started VM Agent service"
+                    Write-Log "[OK] Started VM Agent service"
                 }
             }
         }
@@ -158,7 +158,7 @@ try {
                     -Wait -PassThru -NoNewWindow
                 
                 if ($process.ExitCode -eq 0) {
-                    Write-Log "✓ Azure VM Agent installed successfully"
+                    Write-Log "[OK] Azure VM Agent installed successfully"
                     $script:InstallationsCompleted++
                 }
                 else {
@@ -166,7 +166,7 @@ try {
                 }
             }
             catch {
-                Write-Log "VM Agent installation failed: $($_.Exception.Message)" -Level Error
+                Write-Log "VM Agent installation failed: $($_.Exception.Message)" -Level ERROR
                 $script:InstallationsFailed++
             }
         }
@@ -196,7 +196,7 @@ try {
                     -Wait -PassThru -NoNewWindow
                 
                 if ($process.ExitCode -eq 0) {
-                    Write-Log "✓ Azure CLI installed successfully"
+                    Write-Log "[OK] Azure CLI installed successfully"
                     $script:InstallationsCompleted++
                 }
                 else {
@@ -204,7 +204,7 @@ try {
                 }
             }
             catch {
-                Write-Log "Azure CLI installation failed: $($_.Exception.Message)" -Level Error
+                Write-Log "Azure CLI installation failed: $($_.Exception.Message)" -Level ERROR
                 $script:InstallationsFailed++
             }
         }
@@ -224,12 +224,12 @@ try {
                 Write-Log "Installing Az PowerShell module..."
                 Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue | Out-Null
                 Install-Module -Name Az -Force -AllowClobber -Scope AllUsers
-                Write-Log "✓ Azure PowerShell installed successfully"
+                Write-Log "[OK] Azure PowerShell installed successfully"
                 $script:InstallationsCompleted++
             }
         }
         catch {
-            Write-Log "Azure PowerShell installation failed: $($_.Exception.Message)" -Level Error
+            Write-Log "Azure PowerShell installation failed: $($_.Exception.Message)" -Level ERROR
             $script:InstallationsFailed++
         }
     }
@@ -257,7 +257,7 @@ try {
                     -Wait -PassThru -NoNewWindow
                 
                 if ($process.ExitCode -eq 0) {
-                    Write-Log "✓ Azure Monitor Agent installed successfully"
+                    Write-Log "[OK] Azure Monitor Agent installed successfully"
                     $script:InstallationsCompleted++
                 }
                 else {
@@ -265,7 +265,7 @@ try {
                 }
             }
             catch {
-                Write-Log "Monitor Agent installation failed: $($_.Exception.Message)" -Level Error
+                Write-Log "Monitor Agent installation failed: $($_.Exception.Message)" -Level ERROR
                 $script:InstallationsFailed++
             }
         }
@@ -278,28 +278,28 @@ try {
     if ($InstallVMAgent) {
         $waService = Get-Service -Name 'WindowsAzureGuestAgent' -ErrorAction SilentlyContinue
         if ($waService) {
-            Write-Log "✓ Azure VM Agent: $($waService.Status)"
+            Write-Log "[OK] Azure VM Agent: $($waService.Status)"
         }
     }
     
     if ($InstallCLI) {
         $azPath = "${env:ProgramFiles(x86)}\Microsoft SDKs\Azure\CLI2\wbin\az.cmd"
         if (Test-Path $azPath) {
-            Write-Log "✓ Azure CLI: Installed"
+            Write-Log "[OK] Azure CLI: Installed"
         }
     }
     
     if ($InstallPowerShell) {
         $azModule = Get-Module -ListAvailable -Name 'Az.Accounts' -ErrorAction SilentlyContinue
         if ($azModule) {
-            Write-Log "✓ Azure PowerShell: $($azModule.Version)"
+            Write-Log "[OK] Azure PowerShell: $($azModule.Version)"
         }
     }
     
     if ($InstallMonitor) {
         $amaService = Get-Service -Name 'AzureMonitorAgent' -ErrorAction SilentlyContinue
         if ($amaService) {
-            Write-Log "✓ Azure Monitor Agent: $($amaService.Status)"
+            Write-Log "[OK] Azure Monitor Agent: $($amaService.Status)"
         }
     }
     
@@ -321,7 +321,11 @@ try {
     Write-Log "Execution time: $([math]::Round($duration, 2))s"
     Write-Log "========================================================="
     
+    Write-Log "===== Install_Azure_Tools complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Installation failed: $_" -Level Error
+    Write-Log "Installation failed: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

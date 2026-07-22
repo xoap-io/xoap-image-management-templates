@@ -23,22 +23,36 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
-function Log {
-    param([string]$msg)
-    Write-Host "[SYSOPTIMIZE] $msg"
+$script:Component = 'SysOptimize'
+function Write-Log {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [SysOptimize] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 trap {
-    Log "ERROR: $_"
-    Log (($_.ScriptStackTrace -split '\r?\n') -replace '^(.*)$','ERROR: $1')
-    Log (($_.Exception.ToString() -split '\r?\n') -replace '^(.*)$','ERROR EXCEPTION: $1')
-    Log 'Sleeping for 60m to give you time to look around the virtual machine before self-destruction...'
-    Start-Sleep -Seconds (60*60)
-    Exit 1
+    Write-Log "Critical error: $_" -Level ERROR
+    ($_.ScriptStackTrace -split '\r?\n') | ForEach-Object { Write-Log "STACK: $_" -Level ERROR }
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 1
 }
 
+$startTime = Get-Date
+Write-Log '===== Optimize_System starting ====='
+
 # run automatic maintenance.
-Log 'Running Automatic Maintenance...'
+Write-Log 'Running Automatic Maintenance...'
 MSchedExe.exe Start
 
 function Wait-Condition {
@@ -102,12 +116,12 @@ Wait-Condition {@(Get-ScheduledTasks | Where-Object {($_.State -ge 4) -and (Test
 
 # generate the .net frameworks native images.
 Get-ChildItem "$env:windir\Microsoft.NET\*\*\ngen.exe" | ForEach-Object {
-    Log "Generating the .NET Framework native images with $_..."
+    Write-Log "Generating the .NET Framework native images with $_..."
     &$_ executeQueuedItems /nologo /silent
 }
 
 # remove temporary files.
-Log 'Stopping services that might interfere with temporary file removal...'
+Write-Log 'Stopping services that might interfere with temporary file removal...'
 function Stop-ServiceForReal($name) {
     while ($true) {
         Stop-Service -ErrorAction SilentlyContinue $name
@@ -127,14 +141,14 @@ Stop-ServiceForReal BITS               # Background Intelligent Transfer Service
     "$env:windir\WinSxS\ManifestCache\*"
     "$env:windir\SoftwareDistribution\Download"
 ) | Where-Object {Test-Path $_} | ForEach-Object {
-    Log "Removing temporary files $_..."
+    Write-Log "Removing temporary files $_..."
     takeown.exe /D Y /R /F $_ | Out-Null
     icacls.exe $_ /grant:r Administrators:F /T /C /Q 2>&1 | Out-Null
     Remove-Item $_ -Exclude 'packer-*' -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 }
 
 # cleanup the WinSxS folder.
-Log 'Cleaning up the WinSxS folder...'
+Write-Log 'Cleaning up the WinSxS folder...'
 dism.exe /Online /Quiet /Cleanup-Image /StartComponentCleanup /ResetBase
 if ($LASTEXITCODE) {
     throw "Failed with Exit Code $LASTEXITCODE"
@@ -144,22 +158,26 @@ if ($LASTEXITCODE) {
 Get-WindowsOptionalFeature -Online |
     Where-Object {$_.State -eq 'Disabled'} |
     ForEach-Object {
-        Log "Removing feature $($_.FeatureName)..."
+        Write-Log "Removing feature $($_.FeatureName)..."
         dism.exe /Online /Quiet /Disable-Feature "/FeatureName:$($_.FeatureName)" /Remove
     }
 
-Log 'Analyzing the WinSxS folder...'
+Write-Log 'Analyzing the WinSxS folder...'
 dism.exe /Online /Cleanup-Image /AnalyzeComponentStore
 
 # reclaim the free disk space.
-Log 'Reclaiming the free disk space...'
+Write-Log 'Reclaiming the free disk space...'
 $results = defrag.exe C: /H /L
 if ($results -eq 'The operation completed successfully.') {
-    Log $results
+    Write-Log $results
 } else {
-    Log 'Zero filling the free disk space...'
+    Write-Log 'Zero filling the free disk space...'
     (New-Object System.Net.WebClient).DownloadFile('https://download.sysinternals.com/files/SDelete.zip', "$env:TEMP\SDelete.zip")
     Expand-Archive "$env:TEMP\SDelete.zip" $env:TEMP
     Remove-Item "$env:TEMP\SDelete.zip"
     &"$env:TEMP\sdelete64.exe" -accepteula -z C:
 }
+
+Write-Log "===== Optimize_System complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+try { Stop-Transcript | Out-Null } catch {}
+exit 0

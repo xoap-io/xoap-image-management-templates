@@ -27,7 +27,7 @@
     Applies optimizations with Enhanced Session Mode enabled
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -42,9 +42,12 @@ $ProgressPreference = 'SilentlyContinue'
 
 # Configuration
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'hyperv-optimize'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [HyperV-Opt] Transcript unavailable: $($_.Exception.Message)" }
 
 $script:OptimizationsApplied = 0
 $script:OptimizationsFailed = 0
@@ -54,23 +57,18 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [HyperV-Opt] $Message"
+    $logMessage = "[$timestamp] [$Level] [HyperV-Opt] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -80,6 +78,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Optimize_HyperV_Performance starting ====="
     
     Write-Log "========================================================="
     Write-Log "Hyper-V Performance Optimization"
@@ -92,12 +91,12 @@ try {
             if (Get-Service -Name $svc -ErrorAction SilentlyContinue) {
                 Set-Service -Name $svc -StartupType Disabled -ErrorAction Stop
                 Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-                Write-Log "✓ Disabled: $svc"
+                Write-Log "[OK] Disabled: $svc"
                 $script:OptimizationsApplied++
             }
         }
         catch {
-            Write-Log "Failed to disable $svc" -Level Warning
+            Write-Log "Failed to disable $svc" -Level WARN
             $script:OptimizationsFailed++
         }
     }
@@ -109,14 +108,14 @@ try {
     $tcpipPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters'
     Set-ItemProperty -Path $tcpipPath -Name 'TcpTimedWaitDelay' -Value 30 -Type DWord -Force
     Set-ItemProperty -Path $tcpipPath -Name 'MaxUserPort' -Value 65534 -Type DWord -Force
-    Write-Log "✓ Applied TCP/IP optimizations"
+    Write-Log "[OK] Applied TCP/IP optimizations"
     $script:OptimizationsApplied++
     
     # Memory optimization
     if ($DisableDynamicMemory) {
         $mmPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
         Set-ItemProperty -Path $mmPath -Name 'DisablePagingExecutive' -Value 1 -Type DWord -Force
-        Write-Log "✓ Disabled paging executive"
+        Write-Log "[OK] Disabled paging executive"
         $script:OptimizationsApplied++
     }
     
@@ -125,11 +124,11 @@ try {
         Write-Log "Configuring Enhanced Session Mode..."
         try {
             Enable-PSRemoting -Force -SkipNetworkProfileCheck | Out-Null
-            Write-Log "✓ Enabled Enhanced Session Mode support"
+            Write-Log "[OK] Enabled Enhanced Session Mode support"
             $script:OptimizationsApplied++
         }
         catch {
-            Write-Log "Failed to enable Enhanced Session Mode" -Level Warning
+            Write-Log "Failed to enable Enhanced Session Mode" -Level WARN
             $script:OptimizationsFailed++
         }
     }
@@ -140,7 +139,7 @@ try {
     }
     if ($highPerf) {
         powercfg /setactive $highPerf
-        Write-Log "✓ Set High Performance power plan"
+        Write-Log "[OK] Set High Performance power plan"
         $script:OptimizationsApplied++
     }
     
@@ -156,7 +155,11 @@ try {
     Write-Log "Execution time: $([math]::Round($duration, 2))s"
     Write-Log "========================================================="
     
+    Write-Log "===== Optimize_HyperV_Performance complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Optimization failed: $_" -Level Error
+    Write-Log "Optimization failed: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

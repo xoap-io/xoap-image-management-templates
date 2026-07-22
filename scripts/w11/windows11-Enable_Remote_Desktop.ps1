@@ -23,6 +23,14 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [RDP] Transcript unavailable: $($_.Exception.Message)" }
+
 function Write-Log {
     param(
         [Parameter(Mandatory)]
@@ -44,12 +52,13 @@ function Write-Log {
 trap {
     Write-Log "Critical error: $_" -Level Error
     ($_.ScriptStackTrace -split '\r?\n') | ForEach-Object { Write-Log "STACK: $_" -Level Error }
-    Write-Log 'Sleeping for 60m to allow investigation...' -Level Error
-    Start-Sleep -Seconds 3600
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
+    $startTime = Get-Date
+    Write-Log "===== Enable_Remote_Desktop starting ====="
     Write-Log "Enabling Remote Desktop..."
     
     Write-Log "Setting fDenyTSConnections to 0 (allow RDP)"
@@ -60,8 +69,12 @@ try {
     Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction Stop
     
     Write-Log "Remote Desktop enabled successfully"
-    
+    Write-Log "===== Enable_Remote_Desktop complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Failed to enable Remote Desktop: $($_.Exception.Message)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

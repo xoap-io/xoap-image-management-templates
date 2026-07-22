@@ -23,6 +23,14 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Continue'
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [RemoveFeat] Transcript unavailable: $($_.Exception.Message)" }
+
 function Write-Log {
     param(
         [Parameter(Mandatory)]
@@ -49,6 +57,8 @@ $selectors = @(
 )
 
 try {
+    Write-Log "===== Remove_Features starting ====="
+    $startTime = Get-Date
     Write-Log "Starting Windows optional feature removal..."
     
     $installed = Get-WindowsOptionalFeature -Online | Where-Object {
@@ -72,8 +82,11 @@ try {
     }
     
     Write-Log "Feature removal process completed"
-    
+    Write-Log "===== Remove_Features complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } catch {
     Write-Log "Feature removal failed: $($_.Exception.Message)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

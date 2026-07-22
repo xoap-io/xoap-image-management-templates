@@ -67,49 +67,57 @@ if (-not (Test-Path $LogPath)) {
 
 Start-Transcript -Path $LogFile -Append
 
+$script:Component = 'PrometheusExporter'
+function Write-Log {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
+}
+
 # Error handling
 trap {
-    Write-Error "Error: $_"
-    Write-Error $_.ScriptStackTrace
+    Write-Log "Error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     Stop-Transcript
     exit 1
 }
 
-Write-Host "=== Windows Exporter for Prometheus Installation ===" -ForegroundColor Cyan
-Write-Host "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Gray
-Write-Host "Listen Port: $ListenPort" -ForegroundColor Gray
-Write-Host "Collectors: $EnabledCollectors" -ForegroundColor Gray
-Write-Host ""
+$startTime = Get-Date
+Write-Log "===== Install_Prometheus_Exporter starting (ListenPort=$ListenPort, Collectors=$EnabledCollectors) ====="
 
 # Determine latest version
 if ($ExporterVersion -eq "latest") {
-    Write-Host "Detecting latest windows_exporter version..." -ForegroundColor Yellow
+    Write-Log "Detecting latest windows_exporter version..."
     try {
         $ReleasesUrl = "https://api.github.com/repos/prometheus-community/windows_exporter/releases/latest"
         $Release = Invoke-RestMethod -Uri $ReleasesUrl -UseBasicParsing
         $ExporterVersion = $Release.tag_name.TrimStart('v')
-        Write-Host "  Latest version: $ExporterVersion" -ForegroundColor Green
+        Write-Log "Latest version: $ExporterVersion"
     } catch {
-        Write-Warning "Could not detect latest version, using 0.25.1"
+        Write-Log "Could not detect latest version, using 0.25.1" -Level WARN
         $ExporterVersion = "0.25.1"
     }
 }
 
 # Download windows_exporter
-Write-Host "`nDownloading windows_exporter..." -ForegroundColor Yellow
+Write-Log "Downloading windows_exporter..."
 $DownloadUrl = "https://github.com/prometheus-community/windows_exporter/releases/download/v$ExporterVersion/windows_exporter-$ExporterVersion-amd64.msi"
 $InstallerPath = Join-Path $env:TEMP "windows_exporter-$ExporterVersion.msi"
 
 try {
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $InstallerPath -UseBasicParsing
-    Write-Host "  [OK] Downloaded windows_exporter" -ForegroundColor Green
+    Write-Log "[OK] Downloaded windows_exporter"
     $script:DownloadedFiles++
 } catch {
     throw "Failed to download windows_exporter: $_"
 }
 
 # Install windows_exporter
-Write-Host "`nInstalling windows_exporter..." -ForegroundColor Yellow
+Write-Log "Installing windows_exporter..."
 $ArgumentList = @(
     "/i",
     "`"$InstallerPath`"",
@@ -122,49 +130,49 @@ $ArgumentList = @(
 $InstallProcess = Start-Process -FilePath "msiexec.exe" -ArgumentList $ArgumentList -Wait -PassThru -NoNewWindow
 
 if ($InstallProcess.ExitCode -eq 0 -or $InstallProcess.ExitCode -eq 3010) {
-    Write-Host "  [OK] windows_exporter installed successfully" -ForegroundColor Green
+    Write-Log "[OK] windows_exporter installed successfully"
 } else {
     throw "Installation failed with exit code: $($InstallProcess.ExitCode)"
 }
 
 # Configure firewall
-Write-Host "`nConfiguring firewall..." -ForegroundColor Yellow
+Write-Log "Configuring firewall..."
 $FirewallRule = Get-NetFirewallRule -Name "WindowsExporter" -ErrorAction SilentlyContinue
 if (-not $FirewallRule) {
     New-NetFirewallRule -Name "WindowsExporter" -DisplayName "Prometheus Windows Exporter" `
         -Description "Allow Prometheus to scrape metrics" `
         -Protocol TCP -LocalPort $ListenPort -Action Allow -Enabled True | Out-Null
-    Write-Host "  [OK] Firewall rule created" -ForegroundColor Green
+    Write-Log "[OK] Firewall rule created"
     $script:FirewallRules++
 } else {
-    Write-Host "  [EXISTS] Firewall rule already exists" -ForegroundColor Gray
+    Write-Log "[EXISTS] Firewall rule already exists"
 }
 
 # Verify service
-Write-Host "`nVerifying service..." -ForegroundColor Yellow
+Write-Log "Verifying service..."
 $Service = Get-Service "windows_exporter" -ErrorAction SilentlyContinue
 if ($Service) {
     if ($Service.Status -ne 'Running') {
         Start-Service "windows_exporter"
     }
     Set-Service "windows_exporter" -StartupType Automatic
-    Write-Host "  [OK] Service is running" -ForegroundColor Green
+    Write-Log "[OK] Service is running"
 } else {
-    Write-Warning "Service not found"
+    Write-Log "Service not found" -Level WARN
 }
 
 # Test metrics endpoint
-Write-Host "`nTesting metrics endpoint..." -ForegroundColor Yellow
+Write-Log "Testing metrics endpoint..."
 Start-Sleep -Seconds 5
 try {
     $MetricsUrl = "http://localhost:$ListenPort/metrics"
     $Response = Invoke-WebRequest -Uri $MetricsUrl -UseBasicParsing -TimeoutSec 10
     if ($Response.StatusCode -eq 200) {
         $MetricsCount = ($Response.Content -split "`n" | Where-Object { $_ -match "^#\s*HELP" }).Count
-        Write-Host "  [OK] Metrics endpoint responding ($MetricsCount metrics)" -ForegroundColor Green
+        Write-Log "[OK] Metrics endpoint responding ($MetricsCount metrics)"
     }
 } catch {
-    Write-Warning "Could not reach metrics endpoint: $_"
+    Write-Log "Could not reach metrics endpoint: $_" -Level WARN
 }
 
 # Count enabled collectors
@@ -200,30 +208,16 @@ scrape_configs:
 
 $ConfigPath = Join-Path $LogPath "prometheus-windows-config.yml"
 $PrometheusConfig | Out-File -FilePath $ConfigPath -Encoding utf8
-Write-Host "`nPrometheus config example: $ConfigPath" -ForegroundColor Cyan
+Write-Log "Prometheus config example: $ConfigPath"
 
 # Summary report
-Write-Host "`n=== Windows Exporter Installation Summary ===" -ForegroundColor Cyan
-Write-Host "Version: $ExporterVersion" -ForegroundColor Gray
-Write-Host "Listen Port: $ListenPort" -ForegroundColor Gray
-Write-Host "Metrics Endpoint: http://localhost:$ListenPort/metrics" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Statistics:" -ForegroundColor Yellow
-Write-Host "  Downloaded Files: $script:DownloadedFiles" -ForegroundColor Gray
-Write-Host "  Configured Collectors: $script:ConfiguredCollectors" -ForegroundColor Gray
-Write-Host "  Firewall Rules: $script:FirewallRules" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Enabled Collectors:" -ForegroundColor Yellow
-$CollectorsList | ForEach-Object { Write-Host "  - $_" -ForegroundColor Gray }
-Write-Host ""
-Write-Host "Next Steps:" -ForegroundColor Yellow
-Write-Host "1. Add this server to Prometheus: $ConfigPath" -ForegroundColor Gray
-Write-Host "2. Test metrics: http://$($env:COMPUTERNAME):$ListenPort/metrics" -ForegroundColor Gray
-Write-Host "3. Configure Grafana dashboards (ID: 14694)" -ForegroundColor Gray
-Write-Host "4. Set up alerting rules in Prometheus" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Documentation: https://github.com/prometheus-community/windows_exporter" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Installation completed successfully!" -ForegroundColor Green
+Write-Log "Version: $ExporterVersion"
+Write-Log "Listen Port: $ListenPort"
+Write-Log "Metrics Endpoint: http://localhost:$ListenPort/metrics"
+Write-Log "Statistics: DownloadedFiles=$script:DownloadedFiles ConfiguredCollectors=$script:ConfiguredCollectors FirewallRules=$script:FirewallRules"
+Write-Log "Enabled Collectors:"
+$CollectorsList | ForEach-Object { Write-Log "  - $_" }
 
+Write-Log "===== Install_Prometheus_Exporter complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 Stop-Transcript
+exit 0

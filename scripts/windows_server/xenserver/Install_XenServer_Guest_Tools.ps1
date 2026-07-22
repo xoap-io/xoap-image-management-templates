@@ -39,7 +39,7 @@
     Installs tools without automatic reboot
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -71,9 +71,12 @@ $ProgressPreference = 'SilentlyContinue'
 
 # Configuration
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'xenserver-tools-install'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [XenTools] Transcript unavailable: $($_.Exception.Message)" }
 
 # XenServer service names to verify
 $XenServices = @(
@@ -87,25 +90,20 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [XenTools] $Message"
+    $logMessage = "[$timestamp] [$Level] [XenTools] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 # Error handler
 trap {
-    Write-Log "Critical error: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -117,6 +115,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Install_XenServer_Guest_Tools starting ====="
     
     Write-Log "========================================================="
     Write-Log "XenServer Guest Tools Installation"
@@ -130,7 +129,7 @@ try {
     $xenInstalled = $false
     foreach ($service in $XenServices) {
         if (Get-Service -Name $service -ErrorAction SilentlyContinue) {
-            Write-Log "✓ XenServer service found: $service"
+            Write-Log "[OK] XenServer service found: $service"
             $xenInstalled = $true
         }
     }
@@ -152,6 +151,7 @@ try {
         
         if ($allRunning) {
             Write-Log "All XenServer services are running. Installation not required."
+            try { Stop-Transcript | Out-Null } catch {}
             exit 0
         }
     }
@@ -191,7 +191,7 @@ try {
                 
                 if ($found) {
                     $installerFile = $found.FullName
-                    Write-Log "✓ Found installer: $installerFile"
+                    Write-Log "[OK] Found installer: $installerFile"
                     break
                 }
             }
@@ -223,10 +223,10 @@ try {
         $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $msiArgs -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0) {
-            Write-Log "✓ XenServer Tools MSI installation completed successfully"
+            Write-Log "[OK] XenServer Tools MSI installation completed successfully"
         }
         elseif ($process.ExitCode -eq 3010) {
-            Write-Log "✓ XenServer Tools installation completed (reboot required)"
+            Write-Log "[OK] XenServer Tools installation completed (reboot required)"
         }
         else {
             throw "MSI installation failed with exit code: $($process.ExitCode)"
@@ -239,7 +239,7 @@ try {
         $process = Start-Process -FilePath $installerFile -ArgumentList $exeArgs -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0) {
-            Write-Log "✓ XenServer Tools EXE installation completed successfully"
+            Write-Log "[OK] XenServer Tools EXE installation completed successfully"
         }
         else {
             throw "EXE installation failed with exit code: $($process.ExitCode)"
@@ -280,7 +280,7 @@ try {
                         $servicesRunning++
                     }
                     catch {
-                        Write-Log "  Failed to start service $service : $($_.Exception.Message)" -Level Warning
+                        Write-Log "  Failed to start service $service : $($_.Exception.Message)" -Level WARN
                     }
                 }
             }
@@ -288,7 +288,7 @@ try {
         
         if ($servicesFound -gt 0 -and $servicesFound -eq $servicesRunning) {
             $allServicesRunning = $true
-            Write-Log "✓ All XenServer services are running"
+            Write-Log "[OK] All XenServer services are running"
         }
         else {
             Write-Log "Services found: $servicesFound, Running: $servicesRunning"
@@ -300,8 +300,8 @@ try {
     }
     
     if (-not $allServicesRunning) {
-        Write-Log "Warning: Not all XenServer services are running after $MaxRetries attempts" -Level Warning
-        Write-Log "A reboot may be required for services to start properly" -Level Warning
+        Write-Log "Warning: Not all XenServer services are running after $MaxRetries attempts" -Level WARN
+        Write-Log "A reboot may be required for services to start properly" -Level WARN
     }
     
     # Check for installed drivers
@@ -311,13 +311,13 @@ try {
     }
     
     if ($drivers) {
-        Write-Log "✓ Found XenServer PV drivers:"
+        Write-Log "[OK] Found XenServer PV drivers:"
         foreach ($driver in $drivers) {
             Write-Log "  - $($driver.DeviceName) [$($driver.DriverVersion)]"
         }
     }
     else {
-        Write-Log "Warning: No XenServer PV drivers detected (may require reboot)" -Level Warning
+        Write-Log "Warning: No XenServer PV drivers detected (may require reboot)" -Level WARN
     }
     
     # Summary
@@ -340,6 +340,7 @@ try {
         Write-Log "System will reboot in 30 seconds to complete installation..."
         Write-Log "Use -SkipReboot parameter to prevent automatic reboot"
         Start-Sleep -Seconds 30
+        try { Stop-Transcript | Out-Null } catch {}
         Restart-Computer -Force
     }
     else {
@@ -347,8 +348,12 @@ try {
         Write-Log "Installation completed. Manual reboot recommended."
     }
     
+    Write-Log "===== Install_XenServer_Guest_Tools complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Installation failed: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Installation failed: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

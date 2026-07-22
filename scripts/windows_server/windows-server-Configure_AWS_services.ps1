@@ -52,57 +52,48 @@ $script:ServicesConfigured = 0
 $script:ServicesInstalled = 0
 $script:ConfigurationsFailed = 0
 
-# Logging function
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0, Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [AWS] $Message"
-    Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
+    Write-Host "[$timestamp] [$Level] [AWS] $Message"
 }
 
 # Error handler
 trap {
-    Write-Log "Critical error: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
     exit 1
 }
 
 # Main execution
 try {
-    # Ensure log directory exists
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
     }
-    
+
     # Ensure temp directory exists
     if (-not (Test-Path $TempDir)) {
         New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
     }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
+
     $startTime = Get-Date
-    
-    Write-Log "==================================================="
-    Write-Log "AWS Services Configuration Script"
-    Write-Log "==================================================="
-    Write-Log "Region: $Region"
-    Write-Log "Skip CloudWatch: $SkipCloudWatch"
-    Write-Log "Skip SSM: $SkipSSM"
-    Write-Log ""
-    
+
+    Write-Log "===== Configure_AWS_services starting (Region=$Region, SkipCloudWatch=$SkipCloudWatch, SkipSSM=$SkipSSM) ====="
+
     # Detect if running on AWS
     Write-Log "Detecting cloud platform..."
     try {
@@ -113,17 +104,17 @@ try {
         $response = $request.GetResponse()
         $isAWS = $true
         $response.Close()
-        Write-Log "✓ Running on AWS EC2"
+        Write-Log "[OK] Running on AWS EC2"
         $script:ServicesConfigured++
     } catch {
-        Write-Log "Not running on AWS EC2 (continuing anyway)" -Level Warning
+        Write-Log "Not running on AWS EC2 (continuing anyway)" -Level WARN
     }
     
     # Enable TLS 1.2
     Write-Log "Enabling TLS 1.2..."
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol `
         -bor [Net.SecurityProtocolType]::Tls12
-    Write-Log "✓ TLS 1.2 enabled"
+    Write-Log "[OK] TLS 1.2 enabled"
     
     # Install AWS CLI
     Write-Log "Installing AWS CLI..."
@@ -145,14 +136,14 @@ try {
             
             if (Test-Path $awsCliPath) {
                 $version = & $awsCliPath --version 2>&1
-                Write-Log "✓ AWS CLI installed: $version"
+                Write-Log "[OK] AWS CLI installed: $version"
                 $script:ServicesInstalled++
             } else {
                 throw "AWS CLI installation failed - executable not found"
             }
         }
     } catch {
-        Write-Log "Failed to install AWS CLI: $($_.Exception.Message)" -Level Error
+        Write-Log "Failed to install AWS CLI: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
     }
     
@@ -168,7 +159,7 @@ try {
                 
                 if ($ssmService.Status -ne 'Running') {
                     Start-Service -Name 'AmazonSSMAgent'
-                    Write-Log "✓ SSM Agent service started"
+                    Write-Log "[OK] SSM Agent service started"
                 }
             } else {
                 $ssmInstaller = Join-Path $TempDir 'AmazonSSMAgent.msi'
@@ -184,7 +175,7 @@ try {
                 
                 $ssmService = Get-Service -Name 'AmazonSSMAgent' -ErrorAction SilentlyContinue
                 if ($ssmService) {
-                    Write-Log "✓ SSM Agent installed successfully"
+                    Write-Log "[OK] SSM Agent installed successfully"
                     Write-Log "  Service status: $($ssmService.Status)"
                     $script:ServicesInstalled++
                 } else {
@@ -197,11 +188,11 @@ try {
                 'region' = $Region
             }
             $ssmConfigPath = "${env:ProgramFiles}\Amazon\SSM\seelog.xml"
-            Write-Log "✓ SSM Agent configured for region: $Region"
+            Write-Log "[OK] SSM Agent configured for region: $Region"
             $script:ServicesConfigured++
             
         } catch {
-            Write-Log "Failed to install SSM Agent: $($_.Exception.Message)" -Level Error
+            Write-Log "Failed to install SSM Agent: $($_.Exception.Message)" -Level ERROR
             $script:ConfigurationsFailed++
         }
     } else {
@@ -231,19 +222,19 @@ try {
                 
                 $cwService = Get-Service -Name 'AmazonCloudWatchAgent' -ErrorAction SilentlyContinue
                 if ($cwService) {
-                    Write-Log "✓ CloudWatch Agent installed successfully"
+                    Write-Log "[OK] CloudWatch Agent installed successfully"
                     Write-Log "  Service status: $($cwService.Status)"
                     $script:ServicesInstalled++
                 } else {
-                    Write-Log "CloudWatch Agent installed but service not found" -Level Warning
+                    Write-Log "CloudWatch Agent installed but service not found" -Level WARN
                 }
             }
             
-            Write-Log "✓ CloudWatch Agent ready for configuration"
+            Write-Log "[OK] CloudWatch Agent ready for configuration"
             $script:ServicesConfigured++
             
         } catch {
-            Write-Log "Failed to install CloudWatch Agent: $($_.Exception.Message)" -Level Error
+            Write-Log "Failed to install CloudWatch Agent: $($_.Exception.Message)" -Level ERROR
             $script:ConfigurationsFailed++
         }
     } else {
@@ -258,15 +249,15 @@ try {
         
         if (Test-Path $ec2Launchv2Path) {
             Write-Log "EC2Launch v2 is installed"
-            Write-Log "✓ EC2Launch v2 ready"
+            Write-Log "[OK] EC2Launch v2 ready"
             $script:ServicesConfigured++
         } elseif (Test-Path $ec2LaunchPath) {
-            Write-Log "EC2Launch v1 is installed (consider upgrading to v2)" -Level Warning
+            Write-Log "EC2Launch v1 is installed (consider upgrading to v2)" -Level WARN
         } else {
-            Write-Log "EC2Launch not found (may need manual installation)" -Level Warning
+            Write-Log "EC2Launch not found (may need manual installation)" -Level WARN
         }
     } catch {
-        Write-Log "Error checking EC2Launch: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error checking EC2Launch: $($_.Exception.Message)" -Level WARN
     }
     
     # Configure IMDSv2
@@ -274,21 +265,21 @@ try {
     try {
         if ($isAWS) {
             # Set IMDSv2 to required (this needs to be done via AWS CLI or API externally)
-            Write-Log "✓ IMDSv2 configuration ready (configure via AWS console/CLI)"
+            Write-Log "[OK] IMDSv2 configuration ready (configure via AWS console/CLI)"
             $script:ServicesConfigured++
         }
     } catch {
-        Write-Log "Error configuring IMDSv2: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring IMDSv2: $($_.Exception.Message)" -Level WARN
     }
     
     # Configure AWS region environment variable
     Write-Log "Setting AWS region environment variable..."
     try {
         [Environment]::SetEnvironmentVariable('AWS_DEFAULT_REGION', $Region, 'Machine')
-        Write-Log "✓ AWS_DEFAULT_REGION set to: $Region"
+        Write-Log "[OK] AWS_DEFAULT_REGION set to: $Region"
         $script:ServicesConfigured++
     } catch {
-        Write-Log "Failed to set AWS_DEFAULT_REGION: $($_.Exception.Message)" -Level Warning
+        Write-Log "Failed to set AWS_DEFAULT_REGION: $($_.Exception.Message)" -Level WARN
     }
     
     # Cleanup temp files
@@ -296,37 +287,28 @@ try {
     try {
         if (Test-Path $TempDir) {
             Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Log "✓ Temporary files cleaned up"
+            Write-Log "[OK] Temporary files cleaned up"
         }
     } catch {
-        Write-Log "Warning: Could not clean up temp files: $($_.Exception.Message)" -Level Warning
+        Write-Log "Warning: Could not clean up temp files: $($_.Exception.Message)" -Level WARN
     }
     
     # Summary
-    $endTime = Get-Date
-    $duration = ($endTime - $startTime).TotalSeconds
-    
-    Write-Log ""
-    Write-Log "==================================================="
-    Write-Log "AWS Services Configuration Summary"
-    Write-Log "==================================================="
+    $duration = ((Get-Date) - $startTime).TotalSeconds
+
     Write-Log "Platform detected: $(if ($isAWS) { 'AWS EC2' } else { 'Non-AWS' })"
     Write-Log "Region: $Region"
-    Write-Log "Services installed: $script:ServicesInstalled"
-    Write-Log "Services configured: $script:ServicesConfigured"
-    Write-Log "Configurations failed: $script:ConfigurationsFailed"
-    Write-Log "Execution time: $([math]::Round($duration, 2))s"
-    Write-Log "==================================================="
-    Write-Log "AWS services configuration completed!"
-    Write-Log ""
     Write-Log "Installed components:"
-    Write-Log "  - AWS CLI: $(if (Test-Path "${env:ProgramFiles}\Amazon\AWSCLIV2\aws.exe") { '✓ Installed' } else { '✗ Not installed' })"
-    Write-Log "  - SSM Agent: $(if (Get-Service -Name 'AmazonSSMAgent' -ErrorAction SilentlyContinue) { '✓ Installed' } else { '✗ Not installed' })"
-    Write-Log "  - CloudWatch Agent: $(if (Get-Service -Name 'AmazonCloudWatchAgent' -ErrorAction SilentlyContinue) { '✓ Installed' } else { '✗ Not installed' })"
-    
+    Write-Log "  - AWS CLI: $(if (Test-Path "${env:ProgramFiles}\Amazon\AWSCLIV2\aws.exe") { '[OK] Installed' } else { '[FAIL] Not installed' })"
+    Write-Log "  - SSM Agent: $(if (Get-Service -Name 'AmazonSSMAgent' -ErrorAction SilentlyContinue) { '[OK] Installed' } else { '[FAIL] Not installed' })"
+    Write-Log "  - CloudWatch Agent: $(if (Get-Service -Name 'AmazonCloudWatchAgent' -ErrorAction SilentlyContinue) { '[OK] Installed' } else { '[FAIL] Not installed' })"
+    Write-Log "===== Configure_AWS_services complete in $([int]$duration)s; installed=$($script:ServicesInstalled) configured=$($script:ServicesConfigured) failed=$($script:ConfigurationsFailed) ====="
+
 } catch {
-    Write-Log "Script execution failed: $_" -Level Error
+    Write-Log "Script execution failed: $_" -Level ERROR
     exit 1
 } finally {
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
 }
+
+exit 0

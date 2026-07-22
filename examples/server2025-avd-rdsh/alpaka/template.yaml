@@ -1,0 +1,143 @@
+# Windows Server 2025 — AVD / RDSH multi-session host image (alpaka v6 / azure-arm).
+#
+# Builds a Server 2025 Remote Desktop Session Host golden image in Azure and publishes it as a
+# NEW Azure Compute Gallery version (plus a managed image) so it can back a Server 2025
+# multi-session AVD host pool.
+#
+# Script paths below are resolved by alpaka INSIDE this template directory. Vendor them first:
+# `pwsh examples/sync-demo-scripts.ps1 -Set server2025-avd-rdsh`.
+#
+# NOTE: the azure-arm plugin does NOT set a VM SecurityProfile, so this uses a STANDARD Gen2 SKU
+# (2025-datacenter-azure-edition) and does not rely on Trusted Launch. If a chosen SKU mandates
+# Trusted Launch, Azure will reject VM creation — that is a plugin gap, not a template error.
+version: "2.0"
+description: "Windows Server 2025 AVD/RDSH azure-arm — managed image + gallery version"
+
+variables:
+  image_name: "server2025-avd-rdsh"
+  location: "westeurope"
+  vm_size: "Standard_D2s_v3"
+  images_rg: "alpaka-images-rg"
+  gallery_name: "alpakaImageGallery"
+  image_version: "1.0.0"
+  winrm_username: "alpakaadmin"
+  winrm_password: "Alpaka!Build2026#RDSH"
+  fslogix_vhd_locations: ""   # e.g. \\storage.file.core.windows.net\profiles
+
+sensitive_variables:
+  - winrm_password
+
+target_platforms:
+  - name: "{{ image_name }}"
+    type: "azure-arm"
+    client_id: "{{env `AZURE_CLIENT_ID`}}"
+    client_secret: "{{env `AZURE_CLIENT_SECRET`}}"
+    tenant_id: "{{env `AZURE_TENANT_ID`}}"
+    subscription_id: "{{env `AZURE_SUBSCRIPTION_ID`}}"
+    location: "{{ location }}"
+
+    # --- source: Windows Server 2025 Datacenter Azure Edition (standard Gen2 SKU) ---
+    image_publisher: "MicrosoftWindowsServer"
+    image_offer: "WindowsServer"
+    image_sku: "2025-datacenter-azure-edition"
+    image_version: "latest"
+
+    vm_size: "{{ vm_size }}"
+    os_type: "Windows"
+    os_disk_size_gb: "128"
+    disk_caching_type: "ReadWrite"
+
+    # --- build into an existing RG ---
+    resource_group_name: "{{ images_rg }}"
+
+    # --- managed image ---
+    managed_image_name: "{{ image_name }}-golden"
+    managed_image_resource_group_name: "{{ images_rg }}"
+    managed_image_storage_account_type: "Standard_LRS"
+
+    # --- NEW gallery version (single-region replica in the build region) ---
+    target_gallery_name: "{{ gallery_name }}"
+    target_resource_group: "{{ images_rg }}"
+    target_image_name: "server2025-avd-rdsh"
+    target_image_version: "{{ image_version }}"
+    replication_regions: 1
+    target_regions:
+      - name: "westeurope"
+        replica_count: 1
+
+    azure_tags:
+      Environment: "test"
+      OS: "Windows Server 2025"
+      Role: "AVD-RDSH-MultiSession"
+      ManagedBy: "Alpaka"
+
+connection:
+  type: "winrm"
+  username: "{{ winrm_username }}"
+  password: "{{ winrm_password }}"
+  use_ssl: true
+  insecure: true
+  timeout: "30m"
+
+actions:
+  - type: windows-update
+    name: patch
+    timeout: "60m"
+
+  # RD Session Host role. Exits 3010 when a reboot is required; a windows-restart follows.
+  - type: powershell
+    name: install-rdsh-role
+    script: "scripts/windows-server-Install_RDSH_Role.ps1"
+    timeout: "30m"
+    valid_exit_codes: [0, 3010]
+
+  - type: windows-restart
+    name: restart-after-rdsh
+    timeout: "15m"
+
+  - type: powershell
+    name: install-fslogix
+    script: "scripts/windows-server-Install_FSLogix.ps1"
+    timeout: "20m"
+    environment:
+      FSLOGIX_VHD_LOCATIONS: "{{ fslogix_vhd_locations }}"
+    valid_exit_codes: [0, 3010]
+
+  - type: powershell
+    name: optimize-system
+    script: "scripts/windows-server-Optimize_System.ps1"
+    timeout: "15m"
+
+  - type: powershell
+    name: cleanup
+    script: "scripts/windows-server-Cleanup_Temporary_Files.ps1"
+    timeout: "15m"
+
+  # --- stage + run Pester before sysprep (a failed test aborts the build) ---
+  - type: file
+    name: stage-tests
+    source: "../tests/ServerAvdRdsh.Tests.ps1"
+    destination: "C:/Alpaka/Tests/ServerAvdRdsh.Tests.ps1"
+    direction: "upload"
+
+  - type: powershell
+    name: pester-validate
+    timeout: "20m"
+    inline:
+      - "Set-ExecutionPolicy Bypass -Scope Process -Force; [Net.ServicePointManager]::SecurityProtocol=3072; Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null; if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'5.0.0' })) { Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope AllUsers }; Import-Module Pester -MinimumVersion 5.0.0 -Force; $cfg = New-PesterConfiguration; $cfg.Run.Path='C:\\Alpaka\\Tests'; $cfg.Run.PassThru=$true; $cfg.Output.Verbosity='Detailed'; $r=Invoke-Pester -Configuration $cfg; if ($r.FailedCount -gt 0) { throw (\"Pester: {0}/{1} tests failed\" -f $r.FailedCount,$r.TotalCount) }"
+
+  - type: powershell
+    name: sysprep-generalize
+    script: "scripts/windows-server-Invoke_Sysprep.ps1"
+    timeout: "30m"
+    environment:
+      SYSPREP_VMMODE: "1"
+      SYSPREP_MODE: "OOBE"
+      SYSPREP_SHUTDOWN: "Shutdown"
+    valid_exit_codes: [0, 3010]
+
+post_build:
+  - name: "manifest"
+    type: "manifest"
+    output: "server2025-avd-rdsh-manifest.json"
+    strip_path: true

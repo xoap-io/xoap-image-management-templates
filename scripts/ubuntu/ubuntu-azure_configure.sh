@@ -62,7 +62,7 @@ log_info "Installing WALinuxAgent..."
 
 if ! dpkg -l | grep -q "^ii.*walinuxagent"; then
     if DEBIAN_FRONTEND=noninteractive apt-get install -y walinuxagent; then
-        log_info "✓ WALinuxAgent installed"
+        log_info "[OK] WALinuxAgent installed"
         ((CONFIGS_APPLIED++))
     else
         log_error "Failed to install WALinuxAgent"
@@ -87,7 +87,7 @@ if [[ -f "$WAAGENT_CONF" ]]; then
     sed -i 's/Logs.Verbose=.*/Logs.Verbose=n/' "$WAAGENT_CONF"
     sed -i 's/Provisioning.MonitorHostName=.*/Provisioning.MonitorHostName=y/' "$WAAGENT_CONF"
     
-    log_info "✓ WALinuxAgent configured"
+    log_info "[OK] WALinuxAgent configured"
     ((CONFIGS_APPLIED++))
 fi
 
@@ -96,7 +96,7 @@ systemctl enable walinuxagent
 systemctl start walinuxagent &>/dev/null || log_warn "WALinuxAgent failed to start (normal if not on Azure)"
 
 if systemctl is-active --quiet walinuxagent; then
-    log_info "✓ WALinuxAgent is running"
+    log_info "[OK] WALinuxAgent is running"
 else
     log_info "WALinuxAgent service enabled (will start on Azure)"
 fi
@@ -108,7 +108,7 @@ log_info "Installing cloud-init..."
 
 if ! dpkg -l | grep -q "^ii.*cloud-init"; then
     if DEBIAN_FRONTEND=noninteractive apt-get install -y cloud-init; then
-        log_info "✓ cloud-init installed"
+        log_info "[OK] cloud-init installed"
         ((CONFIGS_APPLIED++))
     else
         log_warn "Failed to install cloud-init"
@@ -134,7 +134,7 @@ datasource:
       ephemeral0: /dev/disk/cloud/azure_resource
 EOF
     
-    log_info "✓ cloud-init configured for Azure"
+    log_info "[OK] cloud-init configured for Azure"
     ((CONFIGS_APPLIED++))
     
     # Clean cloud-init
@@ -149,7 +149,7 @@ if ! command -v az &>/dev/null; then
     
     if command -v az &>/dev/null; then
         AZ_VERSION=$(az version --output json 2>/dev/null | grep -o '"azure-cli": "[^"]*"' | cut -d'"' -f4)
-        log_info "✓ Azure CLI installed: $AZ_VERSION"
+        log_info "[OK] Azure CLI installed: $AZ_VERSION"
         ((CONFIGS_APPLIED++))
     else
         log_warn "Failed to install Azure CLI"
@@ -173,7 +173,7 @@ EOF
 
 sysctl --system &>/dev/null || log_warn "Failed to apply sysctl settings"
 
-log_info "✓ Kernel parameters configured"
+log_info "[OK] Kernel parameters configured"
 ((CONFIGS_APPLIED++))
 
 # Configure udev rules for Azure
@@ -197,14 +197,14 @@ EOF
 udevadm control --reload-rules
 udevadm trigger
 
-log_info "✓ udev rules configured"
+log_info "[OK] udev rules configured"
 ((CONFIGS_APPLIED++))
 
 # Install Hyper-V tools
 log_info "Installing Hyper-V tools..."
 
 if DEBIAN_FRONTEND=noninteractive apt-get install -y linux-tools-virtual linux-cloud-tools-virtual; then
-    log_info "✓ Hyper-V tools installed"
+    log_info "[OK] Hyper-V tools installed"
     ((CONFIGS_APPLIED++))
 else
     log_warn "Failed to install Hyper-V tools"
@@ -224,7 +224,7 @@ EOF
 
 chmod +x /usr/local/bin/azure-metadata
 
-log_info "✓ Azure metadata helper created"
+log_info "[OK] Azure metadata helper created"
 ((CONFIGS_APPLIED++))
 
 # Verify installations
@@ -234,18 +234,18 @@ COMPONENTS_OK=0
 COMPONENTS_FAIL=0
 
 if dpkg -l | grep -q "^ii.*walinuxagent"; then
-    log_info "  ✓ WALinuxAgent installed"
+    log_info "  [OK] WALinuxAgent installed"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ WALinuxAgent not found"
+    log_warn "  [FAIL] WALinuxAgent not found"
     ((COMPONENTS_FAIL++))
 fi
 
 if command -v az &>/dev/null; then
-    log_info "  ✓ Azure CLI available"
+    log_info "  [OK] Azure CLI available"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ Azure CLI not found"
+    log_warn "  [FAIL] Azure CLI not found"
     ((COMPONENTS_FAIL++))
 fi
 

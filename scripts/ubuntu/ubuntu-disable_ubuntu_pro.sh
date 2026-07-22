@@ -66,7 +66,7 @@ if [[ "$ATTACHED" == "yes" ]]; then
     log_info "Detaching from Ubuntu Pro subscription..."
     
     if pro detach --assume-yes; then
-        log_info "✓ Successfully detached from Ubuntu Pro"
+        log_info "[OK] Successfully detached from Ubuntu Pro"
         ((ACTIONS_PERFORMED++))
     else
         log_error "Failed to detach from Ubuntu Pro"
@@ -89,7 +89,7 @@ PRO_STATE_FILES=(
 for file in "${PRO_STATE_FILES[@]}"; do
     if [[ -f "$file" ]]; then
         rm -f "$file"
-        log_info "  ✓ Removed $file"
+        log_info "  [OK] Removed $file"
         ((ACTIONS_PERFORMED++))
     fi
 done
@@ -105,7 +105,7 @@ PRO_CACHE_DIRS=(
 for dir in "${PRO_CACHE_DIRS[@]}"; do
     if [[ -d "$dir" ]]; then
         rm -rf "${dir:?}"/*
-        log_info "  ✓ Cleaned $dir"
+        log_info "  [OK] Cleaned $dir"
         ((ACTIONS_PERFORMED++))
     fi
 done
@@ -119,7 +119,7 @@ if [[ -d "$PRO_SOURCES_DIR" ]]; then
     find "$PRO_SOURCES_DIR" -name "ubuntu-*-esm-*.list" -type f | while read -r file; do
         if [[ -f "$file" ]]; then
             rm -f "$file"
-            log_info "  ✓ Removed $(basename "$file")"
+            log_info "  [OK] Removed $(basename "$file")"
             ((ACTIONS_PERFORMED++))
         fi
     done
@@ -132,7 +132,7 @@ PRO_AUTH_FILE="/etc/apt/auth.conf.d/90ubuntu-advantage"
 
 if [[ -f "$PRO_AUTH_FILE" ]]; then
     rm -f "$PRO_AUTH_FILE"
-    log_info "  ✓ Removed apt authentication file"
+    log_info "  [OK] Removed apt authentication file"
     ((ACTIONS_PERFORMED++))
 fi
 
@@ -148,7 +148,7 @@ for timer in "${PRO_TIMERS[@]}"; do
     if systemctl is-enabled --quiet "$timer" 2>/dev/null; then
         systemctl disable --quiet "$timer" 2>/dev/null || true
         systemctl stop "$timer" 2>/dev/null || true
-        log_info "  ✓ Disabled $timer"
+        log_info "  [OK] Disabled $timer"
         ((ACTIONS_PERFORMED++))
     fi
 done
@@ -157,7 +157,7 @@ done
 log_info "Updating apt package cache..."
 
 if apt-get update -qq 2>&1 | tee /tmp/apt_update_pro_disable.log >/dev/null; then
-    log_info "✓ Package cache updated"
+    log_info "[OK] Package cache updated"
     ((ACTIONS_PERFORMED++))
 else
     log_warn "Package cache update reported warnings"
@@ -185,7 +185,7 @@ log_info "Execution time: ${DURATION}s"
 log_info "=============================================="
 
 if [[ "$FINAL_STATUS" == "not attached" ]]; then
-    log_info "✓ Ubuntu Pro successfully disabled for image template"
+    log_info "[OK] Ubuntu Pro successfully disabled for image template"
     log_info ""
     log_info "Image is now clean and ready for cloning/distribution"
 else

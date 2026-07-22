@@ -83,7 +83,7 @@ if [[ "$INSTALL_NODE_EXPORTER" == "true" ]]; then
             chmod +x /usr/local/bin/node_exporter
             rm -rf node_exporter.tar.gz "node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64"
             
-            log_info "✓ Node Exporter binary installed"
+            log_info "[OK] Node Exporter binary installed"
             
             # Create user
             useradd --no-create-home --shell /bin/false node_exporter 2>/dev/null || log_info "  User already exists"
@@ -117,7 +117,7 @@ EOF
             sleep 2
             
             if systemctl is-active --quiet node_exporter; then
-                log_info "✓ Node Exporter is running"
+                log_info "[OK] Node Exporter is running"
                 ((AGENTS_INSTALLED++))
             else
                 log_warn "Node Exporter failed to start"
@@ -144,7 +144,7 @@ if [[ "$INSTALL_TELEGRAF" == "true" ]]; then
         apt-get update -qq
         
         if DEBIAN_FRONTEND=noninteractive apt-get install -y telegraf; then
-            log_info "✓ Telegraf installed"
+            log_info "[OK] Telegraf installed"
             
             # Basic configuration
             cat > /etc/telegraf/telegraf.conf <<'EOF'
@@ -196,7 +196,7 @@ EOF
             sleep 2
             
             if systemctl is-active --quiet telegraf; then
-                log_info "✓ Telegraf is running"
+                log_info "[OK] Telegraf is running"
                 ((AGENTS_INSTALLED++))
             else
                 log_warn "Telegraf failed to start"

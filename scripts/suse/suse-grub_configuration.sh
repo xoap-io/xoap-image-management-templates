@@ -86,7 +86,7 @@ else
     echo "GRUB_TIMEOUT=${GRUB_TIMEOUT}" >> "$GRUB_DEFAULT"
 fi
 
-log_info "✓ GRUB timeout configured"
+log_info "[OK] GRUB timeout configured"
 ((CONFIGS_MODIFIED++))
 
 # Disable recovery mode menu entries
@@ -98,7 +98,7 @@ else
     echo 'GRUB_DISABLE_RECOVERY="true"' >> "$GRUB_DEFAULT"
 fi
 
-log_info "✓ Recovery mode disabled"
+log_info "[OK] Recovery mode disabled"
 ((CONFIGS_MODIFIED++))
 
 # Configure kernel command line parameters
@@ -121,7 +121,7 @@ if [[ -n "$KERNEL_PARAMS" ]]; then
         echo "GRUB_CMDLINE_LINUX=\"${KERNEL_PARAMS}\"" >> "$GRUB_DEFAULT"
     fi
     
-    log_info "✓ Kernel parameters configured"
+    log_info "[OK] Kernel parameters configured"
     ((CONFIGS_MODIFIED++))
 fi
 
@@ -145,7 +145,7 @@ else
     echo "GRUB_CMDLINE_LINUX=\"${SECURITY_PARAMS}\"" >> "$GRUB_DEFAULT"
 fi
 
-log_info "✓ Security parameters added"
+log_info "[OK] Security parameters added"
 ((CONFIGS_MODIFIED++))
 
 # Set GRUB background (optional)
@@ -155,7 +155,7 @@ if [[ -f /boot/grub2/themes/openSUSE/background.png ]]; then
     else
         echo 'GRUB_BACKGROUND="/boot/grub2/themes/openSUSE/background.png"' >> "$GRUB_DEFAULT"
     fi
-    log_info "✓ GRUB background configured"
+    log_info "[OK] GRUB background configured"
 fi
 
 # Display current GRUB configuration
@@ -173,7 +173,7 @@ if [[ -d /sys/firmware/efi ]]; then
     GRUB_CFG="/boot/efi/EFI/opensuse/grub.cfg"
     
     if grub2-mkconfig -o "$GRUB_CFG" 2>&1 | tee /tmp/grub-update.log; then
-        log_info "✓ GRUB configuration updated (EFI)"
+        log_info "[OK] GRUB configuration updated (EFI)"
         ((CONFIGS_MODIFIED++))
     else
         log_error "Failed to update GRUB configuration"
@@ -185,7 +185,7 @@ else
     GRUB_CFG="/boot/grub2/grub.cfg"
     
     if grub2-mkconfig -o "$GRUB_CFG" 2>&1 | tee /tmp/grub-update.log; then
-        log_info "✓ GRUB configuration updated (BIOS)"
+        log_info "[OK] GRUB configuration updated (BIOS)"
         ((CONFIGS_MODIFIED++))
     else
         log_error "Failed to update GRUB configuration"
@@ -197,7 +197,7 @@ fi
 # Verify GRUB configuration
 if [[ -f "$GRUB_CFG" ]]; then
     MENU_ENTRIES=$(grep -c "^menuentry" "$GRUB_CFG" || echo "0")
-    log_info "✓ GRUB configuration verified ($MENU_ENTRIES menu entries)"
+    log_info "[OK] GRUB configuration verified ($MENU_ENTRIES menu entries)"
 else
     log_error "GRUB configuration file not found: $GRUB_CFG"
     exit 1

@@ -20,13 +20,24 @@
     Configures Windows Update policies
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
 Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
+
+$script:Component = 'WindowsUpdate'
+function Write-Log {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
+}
 
 # Setup local file logging to C:\xoap-logs
 try {
@@ -40,28 +51,21 @@ try {
     $LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
 
     Start-Transcript -Path $LogFile -Append | Out-Null
-    Write-Host "Logging to: $LogFile"
 } catch {
-    Write-Warning "Failed to start transcript logging to C:\xoap-logs: $($_.Exception.Message)"
-}
-
-# Simple logging function
-function Write-Log {
-    param($Message)
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Log "Transcript unavailable: $($_.Exception.Message)" -Level WARN
 }
 
 trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+    Write-Log "Critical error: $_" -Level ERROR
+    ($_.ScriptStackTrace -split '\r?\n') | ForEach-Object { Write-Log "STACK: $_" -Level ERROR }
     try { Stop-Transcript | Out-Null } catch {}
-    Exit 1
+    exit 1
 }
 
+$started = Get-Date
+
 try {
-    Write-Log 'Starting Windows Update policy configuration'
+    Write-Log '===== Windows_Update_Policies starting ====='
 
     # Windows Update policy settings
     $updatePolicies = @(
@@ -109,11 +113,13 @@ try {
             Set-ItemProperty -Path $policy.Path -Name $policy.Name -Value $policy.Value -Type $policy.Type
             Write-Log "Successfully applied: $($policy.Description)"
         } catch {
-            Write-Log "Warning: Could not apply policy $($policy.Description): $($_.Exception.Message)"
+            Write-Log "Could not apply policy $($policy.Description): $($_.Exception.Message)" -Level WARN
         }
     }
 
-    Write-Log "Windows Update policy configuration completed successfully"
+    Write-Log "===== Windows_Update_Policies complete in $([int]((Get-Date) - $started).TotalSeconds)s ====="
 } finally {
     try { Stop-Transcript | Out-Null } catch {}
 }
+
+exit 0

@@ -26,6 +26,14 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [Provision] Transcript unavailable: $($_.Exception.Message)" }
+
 function Write-Log {
     param(
         [Parameter(Mandatory)]
@@ -195,12 +203,13 @@ function Install-GuestTools {
 trap {
     Write-Log "Critical error: $_" -Level Error
     ($_.ScriptStackTrace -split '\r?\n') | ForEach-Object { Write-Log "STACK: $_" -Level Error }
-    Write-Log 'Sleeping for 60m to allow investigation...' -Level Error
-    Start-Sleep -Seconds 3600
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
+    Write-Log "===== Provision_VM starting ====="
+    $startTime = Get-Date
     Write-Log "Starting Windows VM provisioning..."
     
     # Validate prerequisites
@@ -282,8 +291,11 @@ try {
     
     Write-Log "Windows VM provisioning completed successfully"
     Write-Log "System may require a restart to complete guest tools installation"
-    
+    Write-Log "===== Provision_VM complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } catch {
     Write-Log "Provisioning failed: $($_.Exception.Message)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

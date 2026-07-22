@@ -27,7 +27,7 @@
     Runs generalized sysprep with shutdown
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -41,31 +41,29 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'azure-vm-sysprep'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [AzureSysprep] Transcript unavailable: $($_.Exception.Message)" }
 
 function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [AzureSysprep] $Message"
+    $logMessage = "[$timestamp] [$Level] [AzureSysprep] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -75,6 +73,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== azure-vm-sysprep starting ====="
     
     Write-Log "========================================================="
     Write-Log "Azure VM Sysprep"
@@ -87,10 +86,10 @@ try {
     Write-Log "Verifying Azure VM Agent..."
     $waService = Get-Service -Name 'WindowsAzureGuestAgent' -ErrorAction SilentlyContinue
     if ($waService) {
-        Write-Log "✓ Azure VM Agent: $($waService.Status)"
+        Write-Log "[OK] Azure VM Agent: $($waService.Status)"
     }
     else {
-        Write-Log "Warning: Azure VM Agent not found" -Level Warning
+        Write-Log "Warning: Azure VM Agent not found" -Level WARN
     }
     
     # Configure RDP
@@ -98,7 +97,7 @@ try {
     Write-Log "Configuring RDP..."
     $rdpPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
     Set-ItemProperty -Path $rdpPath -Name 'fDenyTSConnections' -Value 0 -Type DWord -Force
-    Write-Log "✓ Enabled RDP"
+    Write-Log "[OK] Enabled RDP"
     
     # Sysprep execution
     Write-Log ""
@@ -126,7 +125,7 @@ try {
     $process = Start-Process -FilePath $sysprepPath -ArgumentList $sysprepArgs -Wait -PassThru -NoNewWindow
     
     if ($process.ExitCode -eq 0) {
-        Write-Log "✓ Sysprep completed successfully"
+        Write-Log "[OK] Sysprep completed successfully"
     }
     else {
         throw "Sysprep failed with exit code: $($process.ExitCode)"
@@ -143,7 +142,11 @@ try {
     Write-Log "Execution time: $([math]::Round($duration, 2))s"
     Write-Log "========================================================="
     
+    Write-Log "===== azure-vm-sysprep complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Sysprep failed: $_" -Level Error
+    Write-Log "Sysprep failed: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

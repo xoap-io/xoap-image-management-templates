@@ -24,27 +24,28 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 # Logging function
+$script:Component = 'Docker'
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0)]
         [string]$Message,
-        
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    Write-Host "[$timestamp] [$prefix] [Docker] $Message"
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [Docker] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 # Main script execution
 try {
-    Write-Log "Starting Docker installation process..."
+    $startTime = Get-Date
+    Write-Log "===== Install_Docker starting ====="
     
     # Set PowerShell as default shell
     Write-Log "Setting PowerShell as default shell..."
@@ -58,12 +59,12 @@ try {
     }
 
     # Uninstall Windows Defender (optional - can be commented out)
-    Write-Log "Uninstalling Windows Defender..." -Level Warning
+    Write-Log "Uninstalling Windows Defender..." -Level WARN
     Uninstall-WindowsFeature Windows-Defender -ErrorAction SilentlyContinue
 
     # Check if restart is required
     if ($containerFeature.RestartNeeded -eq 'Yes') {
-        Write-Log "System restart required. Restart manually after script completion." -Level Warning
+        Write-Log "System restart required. Restart manually after script completion." -Level WARN
     }
 
     # Install Docker provider
@@ -91,7 +92,12 @@ try {
 
     Write-Log "Docker installation and configuration complete"
 
+    Write-Log "===== Install_Docker complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
-    Log "Error: $($_.Exception.Message)"
+    Write-Log "Error: $($_.Exception.Message)" -Level ERROR
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

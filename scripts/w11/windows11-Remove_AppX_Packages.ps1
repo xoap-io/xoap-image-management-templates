@@ -11,7 +11,15 @@
     - Removes installed packages (all users)
     - Disables Windows Consumer Experience
     - Comprehensive logging to C:\xoap-logs
-    
+
+    WARNING: Removing certain inbox apps makes an image UNSUPPORTED for Windows 365 /
+    CloudPC (for example Microsoft.WindowsStore, Microsoft.DesktopAppInstaller,
+    Microsoft.SecHealthUI, Microsoft.Windows.Photos, Microsoft.WindowsNotepad,
+    Microsoft.Paint and their Store dependencies must remain provisioned). This script's
+    default list removes some of those; do not use it unchanged on a CloudPC image.
+    Run windows11-Validate_CloudPC_Image.ps1 afterwards to confirm the image is still
+    CloudPC-compliant.
+
 .NOTES
     File Name      : windows11-Remove_AppX_Packages.ps1
     Prerequisite   : PowerShell 5.1 or higher, Administrator privileges
@@ -21,7 +29,7 @@
     PowerShell
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 .EXAMPLE
     .\windows11-Remove_AppX_Packages.ps1
@@ -36,34 +44,13 @@ $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
 # Initialize logging
-$script:LogFile = $null
-$script:TranscriptStarted = $false
-
-function Initialize-Logging {
-    try {
-        $logDir = 'C:\xoap-logs'
-        if (-not (Test-Path $logDir)) {
-            New-Item -Path $logDir -ItemType Directory -Force | Out-Null
-        }
-        
-        $scriptName = if ($PSCommandPath) {
-            [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-        } else {
-            'Remove_AppX_Packages'
-        }
-        
-        $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        $script:LogFile = Join-Path $logDir "$scriptName-$timestamp.log"
-        
-        Start-Transcript -Path $script:LogFile -Append | Out-Null
-        $script:TranscriptStarted = $true
-        
-        Write-Log "Logging initialized: $script:LogFile"
-    } catch {
-        Write-Warning "Failed to initialize transcript logging: $($_.Exception.Message)"
-        $script:TranscriptStarted = $false
-    }
-}
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [RemoveAppX] Transcript unavailable: $($_.Exception.Message)" }
 
 function Write-Log {
     param(
@@ -81,28 +68,15 @@ function Write-Log {
         default   { 'INFO' }
     }
     
-    $logEntry = "[$timestamp] [$prefix] $Message"
+    $logEntry = "[$timestamp] [$prefix] [RemoveAppX] $Message"
     Write-Host $logEntry
-}
-
-function Stop-Logging {
-    if ($script:TranscriptStarted) {
-        try {
-            Stop-Transcript | Out-Null
-            $script:TranscriptStarted = $false
-        } catch {
-            Write-Warning "Failed to stop transcript: $($_.Exception.Message)"
-        }
-    }
 }
 
 trap {
     Write-Log "Critical error: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
     Write-Log "Exception: $($_.Exception.ToString())" -Level Error
-    Stop-Logging
-    Write-Log 'Sleeping for 60m to allow investigation...' -Level Error
-    Start-Sleep -Seconds 3600
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -276,8 +250,9 @@ function Remove-InstalledPackages {
 
 # Main execution
 try {
-    Initialize-Logging
-    
+    $startTime = Get-Date
+    Write-Log "===== Remove_AppX_Packages starting ====="
+
     Write-Log "=== Starting AppX Package Removal ==="
     Write-Log "Script: Remove_AppX_Packages.ps1"
     Write-Log "PowerShell Version: $($PSVersionTable.PSVersion)"
@@ -308,10 +283,13 @@ try {
     Write-Log "Total failures: $($provisionedStats.Failed + $installedStats.Failed)"
     
     Write-Log "AppX package removal completed successfully"
-    
+
+    Write-Log "===== Remove_AppX_Packages complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "AppX removal script failed: $($_.Exception.Message)" -Level Error
     exit 1
 } finally {
-    Stop-Logging
+    try { Stop-Transcript | Out-Null } catch {}
 }

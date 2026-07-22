@@ -44,7 +44,7 @@
     Installs CloudWatch Agent without verification
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -71,9 +71,13 @@ $ProgressPreference = 'SilentlyContinue'
 
 # Configuration
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'aws-tools-install'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [AWSTools] Transcript unavailable: $($_.Exception.Message)" }
 $TempDir = Join-Path $env:TEMP "aws-install-$timestamp"
 
 # Statistics
@@ -85,23 +89,18 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [AWSTools] $Message"
+    $logMessage = "[$timestamp] [$Level] [AWSTools] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -115,6 +114,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Install_AWS_Tools starting ====="
     
     Write-Log "========================================================="
     Write-Log "AWS Tools and Agents Installation"
@@ -136,11 +136,11 @@ try {
     $isEC2 = $false
     try {
         $instanceId = Invoke-RestMethod -Uri 'http://169.254.169.254/latest/meta-data/instance-id' -TimeoutSec 2 -ErrorAction Stop
-        Write-Log "✓ Running on EC2 instance: $instanceId"
+        Write-Log "[OK] Running on EC2 instance: $instanceId"
         $isEC2 = $true
     }
     catch {
-        Write-Log "Warning: Not running on EC2 instance" -Level Warning
+        Write-Log "Warning: Not running on EC2 instance" -Level WARN
     }
     
     # Install AWS CLI v2
@@ -167,7 +167,7 @@ try {
                     -Wait -PassThru -NoNewWindow
                 
                 if ($process.ExitCode -eq 0) {
-                    Write-Log "✓ AWS CLI installed successfully"
+                    Write-Log "[OK] AWS CLI installed successfully"
                     $script:InstallationsCompleted++
                 }
                 else {
@@ -175,7 +175,7 @@ try {
                 }
             }
             catch {
-                Write-Log "AWS CLI installation failed: $($_.Exception.Message)" -Level Error
+                Write-Log "AWS CLI installation failed: $($_.Exception.Message)" -Level ERROR
                 $script:InstallationsFailed++
             }
         }
@@ -191,7 +191,7 @@ try {
             Write-Log "SSM Agent already installed: $($ssmService.Status)"
             if ($ssmService.Status -ne 'Running') {
                 Start-Service -Name 'AmazonSSMAgent'
-                Write-Log "✓ Started SSM Agent service"
+                Write-Log "[OK] Started SSM Agent service"
             }
         }
         else {
@@ -208,12 +208,12 @@ try {
                     -Wait -PassThru -NoNewWindow
                 
                 if ($process.ExitCode -eq 0) {
-                    Write-Log "✓ SSM Agent installed successfully"
+                    Write-Log "[OK] SSM Agent installed successfully"
                     
                     Start-Sleep -Seconds 5
                     $ssmService = Get-Service -Name 'AmazonSSMAgent' -ErrorAction SilentlyContinue
                     if ($ssmService -and $ssmService.Status -eq 'Running') {
-                        Write-Log "✓ SSM Agent service is running"
+                        Write-Log "[OK] SSM Agent service is running"
                     }
                     
                     $script:InstallationsCompleted++
@@ -223,7 +223,7 @@ try {
                 }
             }
             catch {
-                Write-Log "SSM Agent installation failed: $($_.Exception.Message)" -Level Error
+                Write-Log "SSM Agent installation failed: $($_.Exception.Message)" -Level ERROR
                 $script:InstallationsFailed++
             }
         }
@@ -252,7 +252,7 @@ try {
                     -Wait -PassThru -NoNewWindow
                 
                 if ($process.ExitCode -eq 0) {
-                    Write-Log "✓ CloudWatch Agent installed successfully"
+                    Write-Log "[OK] CloudWatch Agent installed successfully"
                     $script:InstallationsCompleted++
                 }
                 else {
@@ -260,7 +260,7 @@ try {
                 }
             }
             catch {
-                Write-Log "CloudWatch Agent installation failed: $($_.Exception.Message)" -Level Error
+                Write-Log "CloudWatch Agent installation failed: $($_.Exception.Message)" -Level ERROR
                 $script:InstallationsFailed++
             }
         }
@@ -280,12 +280,12 @@ try {
                 Write-Log "Installing AWSPowerShell.NetCore module..."
                 Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue | Out-Null
                 Install-Module -Name AWSPowerShell.NetCore -Force -AllowClobber -Scope AllUsers
-                Write-Log "✓ AWS Tools for PowerShell installed successfully"
+                Write-Log "[OK] AWS Tools for PowerShell installed successfully"
                 $script:InstallationsCompleted++
             }
         }
         catch {
-            Write-Log "AWS Tools for PowerShell installation failed: $($_.Exception.Message)" -Level Error
+            Write-Log "AWS Tools for PowerShell installation failed: $($_.Exception.Message)" -Level ERROR
             $script:InstallationsFailed++
         }
     }
@@ -300,10 +300,10 @@ try {
             $cliPath = "${env:ProgramFiles}\Amazon\AWSCLIV2\aws.exe"
             if (Test-Path $cliPath) {
                 $version = & $cliPath --version 2>&1
-                Write-Log "✓ AWS CLI: $version"
+                Write-Log "[OK] AWS CLI: $version"
             }
             else {
-                Write-Log "✗ AWS CLI not found" -Level Warning
+                Write-Log "[FAIL] AWS CLI not found" -Level WARN
             }
         }
         
@@ -311,10 +311,10 @@ try {
         if ($InstallSSM) {
             $ssmService = Get-Service -Name 'AmazonSSMAgent' -ErrorAction SilentlyContinue
             if ($ssmService) {
-                Write-Log "✓ SSM Agent: $($ssmService.Status)"
+                Write-Log "[OK] SSM Agent: $($ssmService.Status)"
             }
             else {
-                Write-Log "✗ SSM Agent not found" -Level Warning
+                Write-Log "[FAIL] SSM Agent not found" -Level WARN
             }
         }
         
@@ -322,10 +322,10 @@ try {
         if ($InstallCloudWatch) {
             $cwService = Get-Service -Name 'AmazonCloudWatchAgent' -ErrorAction SilentlyContinue
             if ($cwService) {
-                Write-Log "✓ CloudWatch Agent: $($cwService.Status)"
+                Write-Log "[OK] CloudWatch Agent: $($cwService.Status)"
             }
             else {
-                Write-Log "✗ CloudWatch Agent not found" -Level Warning
+                Write-Log "[FAIL] CloudWatch Agent not found" -Level WARN
             }
         }
         
@@ -333,10 +333,10 @@ try {
         if ($InstallPowerShell) {
             $awsModule = Get-Module -ListAvailable -Name 'AWSPowerShell.NetCore' -ErrorAction SilentlyContinue
             if ($awsModule) {
-                Write-Log "✓ AWS PowerShell: $($awsModule.Version)"
+                Write-Log "[OK] AWS PowerShell: $($awsModule.Version)"
             }
             else {
-                Write-Log "✗ AWS PowerShell module not found" -Level Warning
+                Write-Log "[FAIL] AWS PowerShell module not found" -Level WARN
             }
         }
     }
@@ -346,10 +346,10 @@ try {
     Write-Log "Cleaning up temporary files..."
     try {
         Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Log "✓ Cleanup completed"
+        Write-Log "[OK] Cleanup completed"
     }
     catch {
-        Write-Log "Cleanup failed: $($_.Exception.Message)" -Level Warning
+        Write-Log "Cleanup failed: $($_.Exception.Message)" -Level WARN
     }
     
     # Summary
@@ -367,13 +367,17 @@ try {
     Write-Log "========================================================="
     
     if ($script:InstallationsFailed -eq 0) {
-        Write-Log "✓ All AWS tools installed successfully"
+        Write-Log "[OK] All AWS tools installed successfully"
     }
     else {
-        Write-Log "Warning: Some installations failed" -Level Warning
+        Write-Log "Warning: Some installations failed" -Level WARN
     }
     
+    Write-Log "===== Install_AWS_Tools complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Installation failed: $_" -Level Error
+    Write-Log "Installation failed: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

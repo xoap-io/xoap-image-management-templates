@@ -78,29 +78,26 @@ $script:OptimizationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+$script:Component = 'Storage'
+
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+
+    $line = "[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message
+    Write-Host $line
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [Storage] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 function Test-IsAdministrator {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -123,8 +120,7 @@ function Format-ByteSize {
 #region Volume Discovery
 
 function Get-VolumesToOptimize {
-    Write-LogMessage "Discovering volumes..." -Level Info
-    
+    Write-Log "Discovering volumes..."    
     try {
         if ($DriveLetter) {
             $volumes = @()
@@ -134,7 +130,7 @@ function Get-VolumesToOptimize {
                     $volumes += $vol
                 }
                 else {
-                    Write-LogMessage "  ⚠ Drive $letter not found" -Level Warning
+                    Write-Log "  [WARN] Drive $letter not found" -Level WARN
                 }
             }
         }
@@ -148,24 +144,22 @@ function Get-VolumesToOptimize {
         }
         
         if (-not $volumes) {
-            Write-LogMessage "No volumes found to optimize" -Level Warning
+            Write-Log "No volumes found to optimize" -Level WARN
             return $null
         }
         
-        Write-LogMessage "Found $($volumes.Count) volume(s) to optimize:" -Level Info
-        
+        Write-Log "Found $($volumes.Count) volume(s) to optimize:"        
         foreach ($volume in $volumes) {
             $size = Format-ByteSize -Bytes $volume.Size
             $free = Format-ByteSize -Bytes $volume.SizeRemaining
             $percentFree = [math]::Round(($volume.SizeRemaining / $volume.Size) * 100, 1)
             
-            Write-LogMessage "  $($volume.DriveLetter): $($volume.FileSystemLabel) - $size total, $free free ($percentFree%)" -Level Info
-        }
+            Write-Log "  $($volume.DriveLetter): $($volume.FileSystemLabel) - $size total, $free free ($percentFree%)"        }
         
         return $volumes
     }
     catch {
-        Write-LogMessage "Error discovering volumes: $($_.Exception.Message)" -Level Error
+        Write-Log "Error discovering volumes: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
@@ -199,19 +193,15 @@ function Get-DriveType {
 function Get-VolumeAnalysis {
     param([Parameter(Mandatory)]$Volume)
     
-    Write-LogMessage "Analyzing volume $($Volume.DriveLetter)..." -Level Info
-    
+    Write-Log "Analyzing volume $($Volume.DriveLetter)..."    
     try {
         $analysis = Optimize-Volume -DriveLetter $Volume.DriveLetter -Analyze -ErrorAction Stop
         
-        Write-LogMessage "  Analysis results:" -Level Info
-        Write-LogMessage "    Fragmented: $($analysis.FragmentedPercentage)%" -Level Info
-        Write-LogMessage "    Slab Consolidated: $($analysis.SlabConsolidated)" -Level Info
-        
+        Write-Log "  Analysis results:"        Write-Log "    Fragmented: $($analysis.FragmentedPercentage)%"        Write-Log "    Slab Consolidated: $($analysis.SlabConsolidated)"        
         return $analysis
     }
     catch {
-        Write-LogMessage "  ⚠ Analysis not available: $($_.Exception.Message)" -Level Warning
+        Write-Log "  [WARN] Analysis not available: $($_.Exception.Message)" -Level WARN
         return $null
     }
 }
@@ -226,8 +216,7 @@ function Optimize-VolumeStorage {
         [string]$MediaType
     )
     
-    Write-LogMessage "Optimizing volume $($Volume.DriveLetter)..." -Level Info
-    
+    Write-Log "Optimizing volume $($Volume.DriveLetter)..."    
     try {
         if ($AnalyzeOnly) {
             Get-VolumeAnalysis -Volume $Volume | Out-Null
@@ -241,25 +230,21 @@ function Optimize-VolumeStorage {
             default { 'Analyze' }
         }
         
-        Write-LogMessage "  Media Type: $MediaType" -Level Info
-        Write-LogMessage "  Optimization Type: $optimizationType" -Level Info
-        
+        Write-Log "  Media Type: $MediaType"        Write-Log "  Optimization Type: $optimizationType"        
         # Perform optimization
         switch ($optimizationType) {
             'ReTrim' {
                 if ($EnableTRIM) {
-                    Write-LogMessage "  Executing TRIM operation..." -Level Info
-                    Optimize-Volume -DriveLetter $Volume.DriveLetter -ReTrim -ErrorAction Stop
-                    Write-LogMessage "  ✓ TRIM completed" -Level Success
+                    Write-Log "  Executing TRIM operation..."                    Optimize-Volume -DriveLetter $Volume.DriveLetter -ReTrim -ErrorAction Stop
+                    Write-Log "  [OK] TRIM completed" -Level INFO
                 }
                 else {
-                    Write-LogMessage "  ⚠ TRIM optimization skipped (use -EnableTRIM to enable)" -Level Warning
+                    Write-Log "  [WARN] TRIM optimization skipped (use -EnableTRIM to enable)" -Level WARN
                 }
             }
             'Defrag' {
-                Write-LogMessage "  Defragmenting volume..." -Level Info
-                Optimize-Volume -DriveLetter $Volume.DriveLetter -Defrag -ErrorAction Stop
-                Write-LogMessage "  ✓ Defragmentation completed" -Level Success
+                Write-Log "  Defragmenting volume..."                Optimize-Volume -DriveLetter $Volume.DriveLetter -Defrag -ErrorAction Stop
+                Write-Log "  [OK] Defragmentation completed" -Level INFO
             }
             'Analyze' {
                 Get-VolumeAnalysis -Volume $Volume | Out-Null
@@ -270,7 +255,7 @@ function Optimize-VolumeStorage {
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error optimizing volume: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error optimizing volume: $($_.Exception.Message)" -Level ERROR
         $script:OptimizationsFailed++
         return $false
     }
@@ -281,8 +266,7 @@ function Optimize-VolumeStorage {
 #region Disk Cleanup
 
 function Invoke-DiskCleanup {
-    Write-LogMessage "Performing disk cleanup ($CleanupMode mode)..." -Level Info
-    
+    Write-Log "Performing disk cleanup ($CleanupMode mode)..."    
     $spaceBeforeCleanup = (Get-Volume -DriveLetter C).SizeRemaining
     
     try {
@@ -313,20 +297,19 @@ function Invoke-DiskCleanup {
         $script:SpaceReclaimed = $spaceReclaimed
         
         if ($spaceReclaimed -gt 0) {
-            Write-LogMessage "  ✓ Space reclaimed: $(Format-ByteSize -Bytes $spaceReclaimed)" -Level Success
+            Write-Log "  [OK] Space reclaimed: $(Format-ByteSize -Bytes $spaceReclaimed)" -Level INFO
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error during cleanup: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error during cleanup: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Remove-TemporaryFiles {
-    Write-LogMessage "  Cleaning temporary files..." -Level Info
-    
+    Write-Log "  Cleaning temporary files..."    
     $tempPaths = @(
         "$env:TEMP\*"
         "$env:WINDIR\Temp\*"
@@ -346,46 +329,43 @@ function Remove-TemporaryFiles {
         }
     }
     
-    Write-LogMessage "    ✓ Removed $filesRemoved temporary files" -Level Success
+    Write-Log "    [OK] Removed $filesRemoved temporary files" -Level INFO
 }
 
 function Remove-WindowsUpdateFiles {
-    Write-LogMessage "  Cleaning Windows Update files..." -Level Info
-    
+    Write-Log "  Cleaning Windows Update files..."    
     try {
         # Use DISM to clean up
         $dismResult = & DISM.exe /Online /Cleanup-Image /StartComponentCleanup /ResetBase 2>&1
         
         if ($LASTEXITCODE -eq 0) {
-            Write-LogMessage "    ✓ Windows Update cleanup completed" -Level Success
+            Write-Log "    [OK] Windows Update cleanup completed" -Level INFO
         }
         else {
-            Write-LogMessage "    ⚠ DISM cleanup returned code: $LASTEXITCODE" -Level Warning
+            Write-Log "    [WARN] DISM cleanup returned code: $LASTEXITCODE" -Level WARN
         }
     }
     catch {
-        Write-LogMessage "    ✗ Error cleaning Windows Update files: $($_.Exception.Message)" -Level Error
+        Write-Log "    [FAIL] Error cleaning Windows Update files: $($_.Exception.Message)" -Level ERROR
     }
 }
 
 function Clear-RecycleBinAll {
-    Write-LogMessage "  Emptying Recycle Bin..." -Level Info
-    
+    Write-Log "  Emptying Recycle Bin..."    
     try {
         # Clear recycle bin for all drives
         $recycleBin = (New-Object -ComObject Shell.Application).Namespace(0xA)
         $recycleBin.Items() | ForEach-Object { Remove-Item $_.Path -Recurse -Force -ErrorAction SilentlyContinue }
         
-        Write-LogMessage "    ✓ Recycle Bin emptied" -Level Success
+        Write-Log "    [OK] Recycle Bin emptied" -Level INFO
     }
     catch {
-        Write-LogMessage "    ⚠ Could not empty Recycle Bin: $($_.Exception.Message)" -Level Warning
+        Write-Log "    [WARN] Could not empty Recycle Bin: $($_.Exception.Message)" -Level WARN
     }
 }
 
 function Remove-WindowsLogs {
-    Write-LogMessage "  Cleaning Windows logs..." -Level Info
-    
+    Write-Log "  Cleaning Windows logs..."    
     $logPaths = @(
         "$env:WINDIR\Logs\*"
         "$env:WINDIR\Panther\*"
@@ -402,21 +382,20 @@ function Remove-WindowsLogs {
         }
     }
     
-    Write-LogMessage "    ✓ Old Windows logs removed" -Level Success
+    Write-Log "    [OK] Old Windows logs removed" -Level INFO
 }
 
 function Remove-DownloadedUpdates {
-    Write-LogMessage "  Cleaning downloaded updates..." -Level Info
-    
+    Write-Log "  Cleaning downloaded updates..."    
     try {
         $updatePath = "$env:WINDIR\SoftwareDistribution\Download\*"
         Get-ChildItem -Path $updatePath -Recurse -Force -ErrorAction SilentlyContinue |
             Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
         
-        Write-LogMessage "    ✓ Downloaded updates removed" -Level Success
+        Write-Log "    [OK] Downloaded updates removed" -Level INFO
     }
     catch {
-        Write-LogMessage "    ⚠ Could not remove downloaded updates: $($_.Exception.Message)" -Level Warning
+        Write-Log "    [WARN] Could not remove downloaded updates: $($_.Exception.Message)" -Level WARN
     }
 }
 
@@ -425,8 +404,7 @@ function Remove-DownloadedUpdates {
 #region Reporting
 
 function Get-StorageReport {
-    Write-LogMessage "Generating storage report..." -Level Info
-    
+    Write-Log "Generating storage report..."    
     try {
         $reportFile = Join-Path $LogDir "storage-optimization-$timestamp.txt"
         $report = @()
@@ -483,11 +461,11 @@ function Get-StorageReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Storage report saved to: $reportFile" -Level Success
+        Write-Log "Storage report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -499,54 +477,35 @@ function Get-StorageReport {
 function Main {
     $scriptStartTime = Get-Date
     
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Storage Optimization" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+    Write-Log '===== Optimize_Storage starting ====='
+    Write-Log "Log file: $LogFile"
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
     # Configuration summary
-    Write-LogMessage "Configuration:" -Level Info
-    Write-LogMessage "  Cleanup Mode: $CleanupMode" -Level Info
-    Write-LogMessage "  Enable TRIM: $EnableTRIM" -Level Info
-    Write-LogMessage "  Defragment HDD: $DefragmentHDD" -Level Info
-    Write-LogMessage "  Analyze Only: $AnalyzeOnly" -Level Info
-    Write-LogMessage "" -Level Info
-    
+    Write-Log "Configuration:"    Write-Log "  Cleanup Mode: $CleanupMode"    Write-Log "  Enable TRIM: $EnableTRIM"    Write-Log "  Defragment HDD: $DefragmentHDD"    Write-Log "  Analyze Only: $AnalyzeOnly"    Write-Log ""    
     # Discover volumes
     $volumes = Get-VolumesToOptimize
     
     if (-not $volumes) {
-        Write-LogMessage "No volumes to optimize" -Level Error
+        Write-Log "No volumes to optimize" -Level ERROR
         exit 1
     }
-    
-    Write-LogMessage "" -Level Info
-    
+        
     # Optimize each volume
     foreach ($volume in $volumes) {
-        Write-LogMessage "========== Processing: $($volume.DriveLetter): ==========" -Level Info
-        
+        Write-Log "========== Processing: $($volume.DriveLetter): =========="        
         $mediaType = Get-DriveType -Volume $volume
         Optimize-VolumeStorage -Volume $volume -MediaType $mediaType
-        
-        Write-LogMessage "" -Level Info
-    }
+            }
     
     # Perform disk cleanup
     if (-not $AnalyzeOnly) {
-        Write-LogMessage "========== Disk Cleanup ==========" -Level Info
-        Invoke-DiskCleanup
-        Write-LogMessage "" -Level Info
-    }
+        Write-Log "========== Disk Cleanup =========="        Invoke-DiskCleanup    }
     
     # Generate report
     Get-StorageReport | Out-Null
@@ -555,21 +514,14 @@ function Main {
     $scriptEndTime = Get-Date
     $duration = $scriptEndTime - $scriptStartTime
     
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Storage Optimization Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Volumes Optimized: $script:VolumesOptimized" -Level Info
-    Write-LogMessage "Space Reclaimed: $(Format-ByteSize -Bytes $script:SpaceReclaimed)" -Level Info
-    Write-LogMessage "Optimizations Failed: $script:OptimizationsFailed" -Level Info
-    Write-LogMessage "Duration: $([math]::Round($duration.TotalSeconds, 2)) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
+    Write-Log "Space reclaimed: $(Format-ByteSize -Bytes $script:SpaceReclaimed)"
+
     if ($script:OptimizationsFailed -eq 0) {
-        Write-LogMessage "Storage optimization completed successfully!" -Level Success
+        Write-Log "===== Optimize_Storage complete in $([int]$duration.TotalSeconds)s applied=$script:VolumesOptimized failed=$script:OptimizationsFailed ====="
         exit 0
     }
     else {
-        Write-LogMessage "Optimization completed with $script:OptimizationsFailed failures" -Level Warning
+        Write-Log "Storage optimization completed with $script:OptimizationsFailed failure(s)." -Level ERROR
         exit 1
     }
 }
@@ -579,9 +531,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

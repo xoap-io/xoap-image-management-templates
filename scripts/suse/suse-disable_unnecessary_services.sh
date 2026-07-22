@@ -84,13 +84,13 @@ for service in "${SERVICES_TO_DISABLE[@]}"; do
             systemctl disable "$service" 2>/dev/null || log_warn "    Could not disable $service"
             
             if systemctl is-enabled --quiet "$service" 2>/dev/null; then
-                log_warn "    ✗ Failed to disable $service"
+                log_warn "    [FAIL] Failed to disable $service"
             else
-                log_info "    ✓ Disabled $service"
+                log_info "    [OK] Disabled $service"
                 ((SERVICES_DISABLED++))
             fi
         else
-            log_info "  ○ $service already disabled"
+            log_info "  o $service already disabled"
         fi
     else
         log_info "  - $service not installed"
@@ -108,10 +108,10 @@ for service in "${SERVICES_TO_MASK[@]}"; do
         systemctl mask "$service" 2>/dev/null || log_warn "    Could not mask $service"
         
         if systemctl is-masked --quiet "$service" 2>/dev/null; then
-            log_info "    ✓ Masked $service"
+            log_info "    [OK] Masked $service"
             ((SERVICES_MASKED++))
         else
-            log_warn "    ✗ Failed to mask $service"
+            log_warn "    [FAIL] Failed to mask $service"
         fi
     else
         log_info "  - $service not installed"
@@ -129,9 +129,9 @@ ESSENTIAL_SERVICES=(
 
 for service in "${ESSENTIAL_SERVICES[@]}"; do
     if systemctl is-active --quiet "$service"; then
-        log_info "  ✓ $service is running"
+        log_info "  [OK] $service is running"
     else
-        log_warn "  ✗ $service is not running"
+        log_warn "  [FAIL] $service is not running"
     fi
 done
 

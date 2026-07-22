@@ -90,26 +90,26 @@ systemctl start qemu-guest-agent
 sleep 2
 
 if systemctl is-active --quiet qemu-guest-agent; then
-    log_info "✓ qemu-guest-agent service is running"
+    log_info "[OK] qemu-guest-agent service is running"
 else
-    log_error "✗ qemu-guest-agent service failed to start"
+    log_error "[FAIL] qemu-guest-agent service failed to start"
     systemctl status qemu-guest-agent --no-pager
     exit 1
 fi
 
 if systemctl is-enabled --quiet qemu-guest-agent; then
-    log_info "✓ qemu-guest-agent service is enabled"
+    log_info "[OK] qemu-guest-agent service is enabled"
 fi
 
 # Check virtio-serial device
 log_info "Checking for virtio-serial device..."
 
 if [[ -c /dev/virtio-ports/org.qemu.guest_agent.0 ]]; then
-    log_info "✓ virtio-serial device found"
+    log_info "[OK] virtio-serial device found"
 elif [[ -c /dev/vport0p1 ]]; then
-    log_info "✓ virtio-serial device found (legacy)"
+    log_info "[OK] virtio-serial device found (legacy)"
 else
-    log_warn "✗ virtio-serial device not found"
+    log_warn "[FAIL] virtio-serial device not found"
     log_warn "Guest agent may not function properly"
 fi
 

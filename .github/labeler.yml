@@ -8,12 +8,19 @@ Documentation:
 CICD:
 - changed-files:
   - any-glob-to-any-file: '.github/**'
-
-typescript:
+PowerShell:
 - changed-files:
-  - any-glob-to-any-file:  '**/*.ts'
-css:
+  - any-glob-to-any-file: ['scripts/**/*.ps1', 'tests/**/*.ps1']
+Shell:
 - changed-files:
-  - any-glob-to-any-file:  '**/*.css'
-
+  - any-glob-to-any-file: 'scripts/**/*.sh'
+Packer:
+- changed-files:
+  - any-glob-to-any-file: ['packer-hcl/**', 'templates/**']
+Autounattend:
+- changed-files:
+  - any-glob-to-any-file: 'autounattend/**'
+OpenTofu:
+- changed-files:
+  - any-glob-to-any-file: 'opentofu/**'
 

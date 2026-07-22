@@ -68,28 +68,17 @@ $script:ConfigurationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+# Leveled logging function (stdout is the state channel)
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+    Write-Host "[$timestamp] [$Level] [DNS] $Message"
 }
 
 function Test-IsAdministrator {
@@ -116,23 +105,23 @@ function Test-IPAddress {
 
 function Set-DNSServerAddresses {
     if ([string]::IsNullOrWhiteSpace($PrimaryDNS) -and [string]::IsNullOrWhiteSpace($SecondaryDNS)) {
-        Write-LogMessage "No DNS servers specified, skipping DNS server configuration" -Level Info
+        Write-Log "No DNS servers specified, skipping DNS server configuration" -Level INFO
         return $false
     }
     
-    Write-LogMessage "Configuring DNS server addresses..." -Level Info
+    Write-Log "Configuring DNS server addresses..." -Level INFO
     
     try {
         # Get active network adapters
         $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Virtual -eq $false }
         
         if ($adapters.Count -eq 0) {
-            Write-LogMessage "No active network adapters found" -Level Warning
+            Write-Log "No active network adapters found" -Level WARN
             return $false
         }
         
         foreach ($adapter in $adapters) {
-            Write-LogMessage "Configuring adapter: $($adapter.Name)" -Level Info
+            Write-Log "Configuring adapter: $($adapter.Name)" -Level INFO
             
             # Build DNS server list
             $dnsServers = @()
@@ -145,18 +134,18 @@ function Set-DNSServerAddresses {
             
             if ($dnsServers.Count -gt 0) {
                 Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dnsServers
-                Write-LogMessage "  DNS servers set: $($dnsServers -join ', ')" -Level Success
+                Write-Log "  DNS servers set: $($dnsServers -join ', ')" -Level INFO
                 $script:ConfigurationsApplied++
             }
             else {
-                Write-LogMessage "  No valid DNS servers provided" -Level Warning
+                Write-Log "  No valid DNS servers provided" -Level WARN
             }
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "Error setting DNS servers: $($_.Exception.Message)" -Level Error
+        Write-Log "Error setting DNS servers: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
@@ -168,11 +157,11 @@ function Set-DNSServerAddresses {
 
 function Set-DNSSuffixSearchList {
     if ($DNSSuffixList.Count -eq 0) {
-        Write-LogMessage "No DNS suffix list specified" -Level Info
+        Write-Log "No DNS suffix list specified" -Level INFO
         return $false
     }
     
-    Write-LogMessage "Configuring DNS suffix search list..." -Level Info
+    Write-Log "Configuring DNS suffix search list..." -Level INFO
     
     try {
         # Set DNS suffix search list
@@ -181,23 +170,23 @@ function Set-DNSSuffixSearchList {
         Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' `
             -Name 'SearchList' -Value $suffixString -Force
         
-        Write-LogMessage "DNS suffix search list configured:" -Level Info
+        Write-Log "DNS suffix search list configured:" -Level INFO
         foreach ($suffix in $DNSSuffixList) {
-            Write-LogMessage "  - $suffix" -Level Info
+            Write-Log "  - $suffix" -Level INFO
         }
         
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error setting DNS suffix list: $($_.Exception.Message)" -Level Error
+        Write-Log "Error setting DNS suffix list: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Set-DNSRegistrationSettings {
-    Write-LogMessage "Configuring DNS registration settings..." -Level Info
+    Write-Log "Configuring DNS registration settings..." -Level INFO
     
     try {
         # Get active network adapters
@@ -211,13 +200,13 @@ function Set-DNSRegistrationSettings {
                 # Register connection address in DNS
                 if ($RegisterConnection) {
                     Set-ItemProperty -Path $regPath -Name 'RegisterAdapterName' -Value 1 -Type DWord -Force
-                    Write-LogMessage "  Enabled DNS registration for: $($adapter.Name)" -Level Info
+                    Write-Log "  Enabled DNS registration for: $($adapter.Name)" -Level INFO
                 }
                 
                 # Use connection-specific DNS suffix
                 if ($UseSuffixWhenRegistering) {
                     Set-ItemProperty -Path $regPath -Name 'UseDomainNameDevolution' -Value 1 -Type DWord -Force
-                    Write-LogMessage "  Enabled suffix devolution for: $($adapter.Name)" -Level Info
+                    Write-Log "  Enabled suffix devolution for: $($adapter.Name)" -Level INFO
                 }
             }
         }
@@ -226,7 +215,7 @@ function Set-DNSRegistrationSettings {
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring DNS registration: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring DNS registration: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -236,7 +225,7 @@ function Set-DNSRegistrationSettings {
 #region DNS Cache Configuration
 
 function Set-DNSCacheSettings {
-    Write-LogMessage "Configuring DNS cache settings..." -Level Info
+    Write-Log "Configuring DNS cache settings..." -Level INFO
     
     try {
         # Configure DNS cache
@@ -247,13 +236,13 @@ function Set-DNSCacheSettings {
         Set-ItemProperty -Path $dnsCachePath -Name 'MaxNegativeCacheTtl' -Value 0 -Type DWord -Force
         Set-ItemProperty -Path $dnsCachePath -Name 'NegativeCacheTime' -Value 0 -Type DWord -Force
         
-        Write-LogMessage "DNS cache settings configured" -Level Success
+        Write-Log "DNS cache settings configured" -Level INFO
         $script:ConfigurationsApplied++
         
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring DNS cache: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring DNS cache: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -263,15 +252,15 @@ function Clear-DNSCache {
         return $false
     }
     
-    Write-LogMessage "Flushing DNS resolver cache..." -Level Info
+    Write-Log "Flushing DNS resolver cache..." -Level INFO
     
     try {
         Clear-DnsClientCache
-        Write-LogMessage "DNS cache flushed successfully" -Level Success
+        Write-Log "DNS cache flushed successfully" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error flushing DNS cache: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error flushing DNS cache: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -282,11 +271,11 @@ function Clear-DNSCache {
 
 function Disable-NetBIOSOverTCPIP {
     if (-not $DisableNetBIOS) {
-        Write-LogMessage "Skipping NetBIOS configuration" -Level Info
+        Write-Log "Skipping NetBIOS configuration" -Level INFO
         return $false
     }
     
-    Write-LogMessage "Disabling NetBIOS over TCP/IP..." -Level Info
+    Write-Log "Disabling NetBIOS over TCP/IP..." -Level INFO
     
     try {
         # Get network adapters
@@ -297,15 +286,15 @@ function Disable-NetBIOSOverTCPIP {
             # 0 = Use DHCP, 1 = Enable, 2 = Disable
             $adapter.SetTcpipNetbios(2) | Out-Null
             
-            Write-LogMessage "  Disabled NetBIOS for: $($adapter.Description)" -Level Info
+            Write-Log "  Disabled NetBIOS for: $($adapter.Description)" -Level INFO
         }
         
-        Write-LogMessage "NetBIOS over TCP/IP disabled" -Level Success
+        Write-Log "NetBIOS over TCP/IP disabled" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error disabling NetBIOS: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling NetBIOS: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -315,7 +304,7 @@ function Disable-NetBIOSOverTCPIP {
 #region DNS Testing and Verification
 
 function Test-DNSConfiguration {
-    Write-LogMessage "Testing DNS configuration..." -Level Info
+    Write-Log "Testing DNS configuration..." -Level INFO
     
     try {
         # Get DNS configuration
@@ -325,51 +314,51 @@ function Test-DNSConfiguration {
             $dnsConfig = Get-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4
             
             if ($dnsConfig.ServerAddresses.Count -gt 0) {
-                Write-LogMessage "  Adapter: $($adapter.Name)" -Level Info
-                Write-LogMessage "    DNS Servers: $($dnsConfig.ServerAddresses -join ', ')" -Level Info
+                Write-Log "  Adapter: $($adapter.Name)" -Level INFO
+                Write-Log "    DNS Servers: $($dnsConfig.ServerAddresses -join ', ')" -Level INFO
                 
                 # Test DNS resolution
                 foreach ($dnsServer in $dnsConfig.ServerAddresses) {
                     try {
                         $testResult = Test-NetConnection -ComputerName $dnsServer -Port 53 -WarningAction SilentlyContinue
                         if ($testResult.TcpTestSucceeded) {
-                            Write-LogMessage "    DNS server $dnsServer is reachable" -Level Success
+                            Write-Log "    DNS server $dnsServer is reachable" -Level INFO
                         }
                         else {
-                            Write-LogMessage "    DNS server $dnsServer is not reachable" -Level Warning
+                            Write-Log "    DNS server $dnsServer is not reachable" -Level WARN
                         }
                     }
                     catch {
-                        Write-LogMessage "    Could not test DNS server $dnsServer" -Level Warning
+                        Write-Log "    Could not test DNS server $dnsServer" -Level WARN
                     }
                 }
             }
             else {
-                Write-LogMessage "  Adapter: $($adapter.Name) - No DNS servers configured" -Level Warning
+                Write-Log "  Adapter: $($adapter.Name) - No DNS servers configured" -Level WARN
             }
         }
         
         # Test DNS resolution
-        Write-LogMessage "Testing DNS resolution..." -Level Info
+        Write-Log "Testing DNS resolution..." -Level INFO
         try {
             $testDomain = "microsoft.com"
             $resolveResult = Resolve-DnsName -Name $testDomain -ErrorAction Stop
-            Write-LogMessage "  DNS resolution test successful ($testDomain)" -Level Success
+            Write-Log "  DNS resolution test successful ($testDomain)" -Level INFO
         }
         catch {
-            Write-LogMessage "  DNS resolution test failed: $($_.Exception.Message)" -Level Warning
+            Write-Log "  DNS resolution test failed: $($_.Exception.Message)" -Level WARN
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "Error testing DNS configuration: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error testing DNS configuration: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
 
 function Get-DNSClientReport {
-    Write-LogMessage "Generating DNS client configuration report..." -Level Info
+    Write-Log "Generating DNS client configuration report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "dns-client-config-$timestamp.txt"
@@ -445,11 +434,11 @@ function Get-DNSClientReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "DNS client report saved to: $reportFile" -Level Success
+        Write-Log "DNS client report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -459,19 +448,23 @@ function Get-DNSClientReport {
 #region Main Execution
 
 function Main {
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
+    }
+
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "DNS Client Configuration" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Configure_DNS_Client starting ====="
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
@@ -490,25 +483,14 @@ function Main {
     Get-DNSClientReport | Out-Null
     
     # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configuration Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configurations Applied: $script:ConfigurationsApplied" -Level Info
-    Write-LogMessage "Configuration Failures: $script:ConfigurationsFailed" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
+    $duration = ((Get-Date) - $scriptStartTime).TotalSeconds
+
     if ($script:ConfigurationsFailed -eq 0) {
-        Write-LogMessage "DNS client configuration completed successfully!" -Level Success
-        Write-LogMessage "Test resolution: Resolve-DnsName -Name example.com" -Level Info
+        Write-Log "===== Configure_DNS_Client complete in $([int]$duration)s; applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) ====="
         exit 0
     }
     else {
-        Write-LogMessage "Configuration completed with $script:ConfigurationsFailed errors" -Level Warning
+        Write-Log "===== Configure_DNS_Client complete in $([int]$duration)s; applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) =====" -Level WARN
         exit 1
     }
 }
@@ -518,9 +500,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

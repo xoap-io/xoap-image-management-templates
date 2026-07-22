@@ -30,7 +30,7 @@
     Enables all available integration services
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -48,9 +48,12 @@ $ProgressPreference = 'SilentlyContinue'
 
 # Configuration
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'hyperv-integration-install'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [HyperV-IS] Transcript unavailable: $($_.Exception.Message)" }
 
 # Hyper-V services to verify
 $HyperVServices = @(
@@ -72,25 +75,20 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [HyperV-IS] $Message"
+    $logMessage = "[$timestamp] [$Level] [HyperV-IS] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 # Error handler
 trap {
-    Write-Log "Critical error: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -102,6 +100,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Install_HyperV_Integration_Services starting ====="
     
     Write-Log "========================================================="
     Write-Log "Hyper-V Integration Services Installation"
@@ -118,13 +117,13 @@ try {
     $model = (Get-WmiObject -Class Win32_ComputerSystem).Model
     
     if ($manufacturer -like '*Microsoft*' -and $model -like '*Virtual*') {
-        Write-Log "✓ Hyper-V detected"
+        Write-Log "[OK] Hyper-V detected"
         Write-Log "  Manufacturer: $manufacturer"
         Write-Log "  Model: $model"
         $isHyperV = $true
     }
     else {
-        Write-Log "Warning: Hyper-V not detected" -Level Warning
+        Write-Log "Warning: Hyper-V not detected" -Level WARN
         Write-Log "  Manufacturer: $manufacturer"
         Write-Log "  Model: $model"
         Write-Log "Continuing anyway..."
@@ -138,13 +137,13 @@ try {
     Write-Log "Windows Version: $($osVersion.Major).$($osVersion.Minor) Build $($osVersion.Build)"
     
     if ($osVersion.Major -ge 10) {
-        Write-Log "✓ Modern Windows version - Integration Services built-in"
+        Write-Log "[OK] Modern Windows version - Integration Services built-in"
     }
     elseif ($osVersion.Major -eq 6 -and $osVersion.Minor -ge 2) {
         Write-Log "Windows 8/Server 2012 or newer - Integration Services built-in"
     }
     else {
-        Write-Log "Warning: Older Windows version may require Integration Services installation" -Level Warning
+        Write-Log "Warning: Older Windows version may require Integration Services installation" -Level WARN
     }
     
     # Check for Integration Services
@@ -159,7 +158,7 @@ try {
         
         if ($service) {
             $servicesFound++
-            $statusSymbol = if ($service.Status -eq 'Running') { '✓' } else { '✗' }
+            $statusSymbol = if ($service.Status -eq 'Running') { '[OK]' } else { '[FAIL]' }
             Write-Log "  $statusSymbol $($service.DisplayName) [$serviceName]: $($service.Status)"
             
             if ($service.Status -eq 'Running') {
@@ -167,7 +166,7 @@ try {
             }
         }
         else {
-            Write-Log "  ✗ $serviceName: Not found" -Level Warning
+            Write-Log "  [MISSING] ${serviceName}: Not found" -Level WARN
         }
     }
     
@@ -178,6 +177,7 @@ try {
     if ($VerifyOnly) {
         Write-Log ""
         Write-Log "Verification complete."
+        try { Stop-Transcript | Out-Null } catch {}
         exit 0
     }
     
@@ -192,11 +192,11 @@ try {
             if ($service -and $service.Status -ne 'Running') {
                 try {
                     Start-Service -Name $serviceName -ErrorAction Stop
-                    Write-Log "✓ Started: $serviceName"
+                    Write-Log "[OK] Started: $serviceName"
                     $script:ServicesConfigured++
                 }
                 catch {
-                    Write-Log "Failed to start $serviceName : $($_.Exception.Message)" -Level Warning
+                    Write-Log "Failed to start $serviceName : $($_.Exception.Message)" -Level WARN
                     $script:ServicesFailed++
                 }
             }
@@ -214,11 +214,11 @@ try {
             if ($service) {
                 try {
                     Set-Service -Name $serviceName -StartupType Automatic -ErrorAction Stop
-                    Write-Log "✓ Set to Automatic: $serviceName"
+                    Write-Log "[OK] Set to Automatic: $serviceName"
                     $script:ServicesConfigured++
                 }
                 catch {
-                    Write-Log "Failed to set startup type for $serviceName : $($_.Exception.Message)" -Level Warning
+                    Write-Log "Failed to set startup type for $serviceName : $($_.Exception.Message)" -Level WARN
                     $script:ServicesFailed++
                 }
             }
@@ -235,13 +235,13 @@ try {
     }
     
     if ($hypervDrivers) {
-        Write-Log "✓ Found Hyper-V drivers:"
+        Write-Log "[OK] Found Hyper-V drivers:"
         foreach ($driver in $hypervDrivers) {
             Write-Log "  - $($driver.DeviceName) [$($driver.DriverVersion)]"
         }
     }
     else {
-        Write-Log "Warning: No Hyper-V specific drivers detected" -Level Warning
+        Write-Log "Warning: No Hyper-V specific drivers detected" -Level WARN
     }
     
     # Verify network adapters
@@ -254,7 +254,7 @@ try {
     }
     
     if ($netAdapters) {
-        Write-Log "✓ Found Hyper-V network adapters:"
+        Write-Log "[OK] Found Hyper-V network adapters:"
         foreach ($adapter in $netAdapters) {
             Write-Log "  - $($adapter.Name): $($adapter.Status) [$($adapter.LinkSpeed)]"
         }
@@ -269,13 +269,13 @@ try {
         $timePath = 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters'
         if (Test-Path $timePath) {
             Set-ItemProperty -Path $timePath -Name 'Type' -Value 'NoSync' -ErrorAction SilentlyContinue
-            Write-Log "✓ Configured time synchronization"
+            Write-Log "[OK] Configured time synchronization"
             $script:ServicesConfigured++
         }
         
     }
     catch {
-        Write-Log "Registry optimization failed: $($_.Exception.Message)" -Level Warning
+        Write-Log "Registry optimization failed: $($_.Exception.Message)" -Level WARN
         $script:ServicesFailed++
     }
     
@@ -308,14 +308,18 @@ try {
     Write-Log "========================================================="
     
     if ($finalRunning -eq $servicesFound) {
-        Write-Log "✓ All Integration Services are running"
+        Write-Log "[OK] All Integration Services are running"
     }
     else {
-        Write-Log "Warning: Not all services are running" -Level Warning
+        Write-Log "Warning: Not all services are running" -Level WARN
     }
     
+    Write-Log "===== Install_HyperV_Integration_Services complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Installation failed: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Installation failed: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

@@ -51,12 +51,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-# Configuration
 $LogDir = 'C:\xoap-logs'
-$TempDir = "$env:SystemDrive\Temp"
-$scriptName = 'windows11-optimize-25h2'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [W11-25H2] Transcript unavailable: $($_.Exception.Message)" }
 
 # Statistics tracking
 $script:OptimizationsApplied = 0
@@ -79,13 +80,13 @@ function Write-Log {
     }
     $logMessage = "[$timestamp] [$prefix] [W11-25H2] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 # Error handler
 trap {
     Write-Log "Critical error: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -97,7 +98,8 @@ try {
     }
     
     $startTime = Get-Date
-    
+
+    Write-Log "===== Optimize_W11_25H2 starting ====="
     Write-Log "========================================================="
     Write-Log "Windows 11 25H2 Optimization Script"
     Write-Log "========================================================="
@@ -149,7 +151,7 @@ try {
                 if ($svc) {
                     if ($svc.StartType -ne 'Disabled') {
                         Set-Service -Name $service -StartupType Disabled -ErrorAction Stop
-                        Write-Log "✓ Disabled service: $service"
+                        Write-Log "[OK] Disabled service: $service"
                         $script:OptimizationsApplied++
                     }
                     if ($svc.Status -eq 'Running') {
@@ -201,7 +203,7 @@ try {
                 $schTask = Get-ScheduledTask -TaskPath (Split-Path $task -Parent) -TaskName (Split-Path $task -Leaf) -ErrorAction SilentlyContinue
                 if ($schTask -and $schTask.State -ne 'Disabled') {
                     Disable-ScheduledTask -TaskPath (Split-Path $task -Parent) -TaskName (Split-Path $task -Leaf) -ErrorAction Stop | Out-Null
-                    Write-Log "✓ Disabled scheduled task: $task"
+                    Write-Log "[OK] Disabled scheduled task: $task"
                     $script:OptimizationsApplied++
                 }
             } catch {
@@ -233,7 +235,7 @@ try {
         try {
             if (Test-Path $autologger) {
                 New-ItemProperty -Path $autologger -Name "Start" -PropertyType DWORD -Value 0 -Force -ErrorAction SilentlyContinue | Out-Null
-                Write-Log "✓ Disabled autologger: $(Split-Path $autologger -Leaf)"
+                Write-Log "[OK] Disabled autologger: $(Split-Path $autologger -Leaf)"
                 $script:OptimizationsApplied++
             }
         } catch {
@@ -294,7 +296,7 @@ try {
                 New-Item -Path $reg.Path -Force | Out-Null
             }
             New-ItemProperty -Path $reg.Path -Name $reg.Name -Value $reg.Value -PropertyType DWORD -Force -ErrorAction Stop | Out-Null
-            Write-Log "✓ Applied registry optimization: $($reg.Path)\$($reg.Name)"
+            Write-Log "[OK] Applied registry optimization: $($reg.Path)\$($reg.Name)"
             $script:OptimizationsApplied++
         } catch {
             Write-Log "Failed to apply registry optimization $($reg.Path)\$($reg.Name) : $($_.Exception.Message)" -Level Warning
@@ -316,7 +318,7 @@ try {
             Write-Log "Running Windows Defender quick scan..."
             Start-MpScan -ScanType QuickScan -ErrorAction SilentlyContinue
             
-            Write-Log "✓ Windows Defender optimization completed"
+            Write-Log "[OK] Windows Defender optimization completed"
             $script:OptimizationsApplied++
         } catch {
             Write-Log "Windows Defender optimization failed: $($_.Exception.Message)" -Level Warning
@@ -352,7 +354,7 @@ try {
             Write-Log "Running Disk Cleanup utility..."
             Start-Process -FilePath cleanmgr.exe -ArgumentList "/sagerun:1" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
             
-            Write-Log "✓ Disk cleanup completed"
+            Write-Log "[OK] Disk cleanup completed"
             $script:OptimizationsApplied++
         } catch {
             Write-Log "Disk cleanup failed: $($_.Exception.Message)" -Level Warning
@@ -376,13 +378,13 @@ try {
         
         if ($highPerf) {
             powercfg /setactive $highPerf
-            Write-Log "✓ Set power plan to High Performance"
+            Write-Log "[OK] Set power plan to High Performance"
             $script:OptimizationsApplied++
         }
         
         # Disable hibernation
         powercfg /hibernate off
-        Write-Log "✓ Disabled hibernation"
+        Write-Log "[OK] Disabled hibernation"
         $script:OptimizationsApplied++
         
     } catch {
@@ -403,7 +405,7 @@ try {
         Get-NetAdapterAdvancedProperty -DisplayName "Large Send Offload V2 (IPv4)" -ErrorAction SilentlyContinue | 
             Set-NetAdapterAdvancedProperty -DisplayValue "Disabled" -ErrorAction SilentlyContinue
         
-        Write-Log "✓ Network settings optimized"
+        Write-Log "[OK] Network settings optimized"
         $script:OptimizationsApplied++
     } catch {
         Write-Log "Network optimization failed: $($_.Exception.Message)" -Level Warning
@@ -418,7 +420,7 @@ try {
         WSReset.exe
         Start-Sleep -Seconds 5
         Get-Process WSReset -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-        Write-Log "✓ Windows Store cache cleared"
+        Write-Log "[OK] Windows Store cache cleared"
         $script:OptimizationsApplied++
     } catch {
         Write-Log "Windows Store cleanup failed: $($_.Exception.Message)" -Level Warning
@@ -440,10 +442,13 @@ try {
     Write-Log "Optimization completed successfully!"
     Write-Log ""
     Write-Log "Note: Some changes may require a system restart to take effect."
-    Write-Log "Log file: $LogFile"
-    
+    Write-Log "Log file: $script:LogFile"
+    Write-Log "===== Optimize_W11_25H2 complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } catch {
     Write-Log "Script execution failed: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

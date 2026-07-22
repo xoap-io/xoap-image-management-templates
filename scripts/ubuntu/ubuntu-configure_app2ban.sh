@@ -50,7 +50,7 @@ log_info "Installing fail2ban..."
 
 if ! dpkg -l | grep -q "^ii  fail2ban "; then
     if DEBIAN_FRONTEND=noninteractive apt-get install -y fail2ban; then
-        log_info "✓ fail2ban installed"
+        log_info "[OK] fail2ban installed"
         ((CONFIGS_APPLIED++))
     else
         log_error "Failed to install fail2ban"
@@ -174,7 +174,7 @@ logpath = /var/log/mail.log
 maxretry = 5
 EOF
 
-log_info "✓ fail2ban configuration created"
+log_info "[OK] fail2ban configuration created"
 ((CONFIGS_APPLIED++))
 
 # Create custom filter for additional SSH hardening
@@ -190,7 +190,7 @@ failregex = ^.*sshd\[.*\]: Did not receive identification string from <HOST>$
 ignoreregex =
 EOF
 
-log_info "✓ Custom SSH filter created"
+log_info "[OK] Custom SSH filter created"
 ((CONFIGS_APPLIED++))
 
 # Enable and start fail2ban
@@ -203,7 +203,7 @@ systemctl restart fail2ban
 sleep 2
 
 if systemctl is-active --quiet fail2ban; then
-    log_info "✓ fail2ban service is running"
+    log_info "[OK] fail2ban service is running"
     ((CONFIGS_APPLIED++))
 else
     log_error "Failed to start fail2ban service"
@@ -214,7 +214,7 @@ fi
 log_info "Verifying fail2ban configuration..."
 
 if fail2ban-client status &>/dev/null; then
-    log_info "✓ fail2ban configuration is valid"
+    log_info "[OK] fail2ban configuration is valid"
 else
     log_error "fail2ban configuration validation failed"
     exit 1
@@ -247,7 +247,7 @@ EOF
 
 systemctl daemon-reload
 
-log_info "✓ Logging configured"
+log_info "[OK] Logging configured"
 ((CONFIGS_APPLIED++))
 
 # Summary statistics

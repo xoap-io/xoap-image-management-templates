@@ -82,29 +82,26 @@ $script:OperationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+$script:Component = 'WindowsFeatures'
+
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+
+    $line = "[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message
+    Write-Host $line
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [WindowsFeatures] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 function Test-IsAdministrator {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -122,8 +119,7 @@ function Get-WindowsFeaturesList {
         [string]$Filter = 'All'
     )
     
-    Write-LogMessage "Retrieving Windows features ($Filter)..." -Level Info
-    
+    Write-Log "Retrieving Windows features ($Filter)..."    
     try {
         $features = Get-WindowsFeature
         
@@ -139,7 +135,7 @@ function Get-WindowsFeaturesList {
         return $features
     }
     catch {
-        Write-LogMessage "Error retrieving features: $($_.Exception.Message)" -Level Error
+        Write-Log "Error retrieving features: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
@@ -154,26 +150,18 @@ function Show-FeaturesList {
     $features = Get-WindowsFeaturesList -Filter $Filter
     
     if (-not $features) {
-        Write-LogMessage "No features found" -Level Warning
+        Write-Log "No features found" -Level WARN
         return
     }
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "Windows Features ($Filter): $($features.Count)" -Level Info
-    Write-LogMessage "=" * 80 -Level Info
-    
+        Write-Log "Windows Features ($Filter): $($features.Count)"    Write-Log "=" * 80    
     # Group by feature type
     $grouped = $features | Group-Object -Property FeatureType
     
-    foreach ($group in $grouped) {
-        Write-LogMessage "" -Level Info
-        Write-LogMessage "$($group.Name) ($($group.Count)):" -Level Info
-        
+    foreach ($group in $grouped) {        Write-Log "$($group.Name) ($($group.Count)):"        
         foreach ($feature in $group.Group | Sort-Object DisplayName) {
             $status = if ($feature.Installed) { "[Installed]" } else { "[Available]" }
             $indent = "  " * $feature.Depth
-            Write-LogMessage "$indent$status $($feature.DisplayName) ($($feature.Name))" -Level Info
-        }
+            Write-Log "$indent$status $($feature.DisplayName) ($($feature.Name))"        }
     }
 }
 
@@ -191,20 +179,19 @@ function Install-WindowsFeatureWithDependencies {
         [string]$SourcePath
     )
     
-    Write-LogMessage "Installing feature: $Name" -Level Info
-    
+    Write-Log "Installing feature: $Name"    
     try {
         # Check if already installed
         $feature = Get-WindowsFeature -Name $Name -ErrorAction Stop
         
         if (-not $feature) {
-            Write-LogMessage "  ✗ Feature not found: $Name" -Level Error
+            Write-Log "  [FAIL] Feature not found: $Name" -Level ERROR
             $script:OperationsFailed++
             return $false
         }
         
         if ($feature.Installed) {
-            Write-LogMessage "  ⚠ Feature is already installed" -Level Warning
+            Write-Log "  [WARN] Feature is already installed" -Level WARN
             return $true
         }
         
@@ -226,31 +213,28 @@ function Install-WindowsFeatureWithDependencies {
             $installParams['Source'] = $SourcePath
         }
         
-        Write-LogMessage "  Installing..." -Level Info
-        
+        Write-Log "  Installing..."        
         # Install feature
         $result = Install-WindowsFeature @installParams
         
         if ($result.Success) {
-            Write-LogMessage "  ✓ Installation successful" -Level Success
-            Write-LogMessage "    Feature: $($feature.DisplayName)" -Level Info
-            
+            Write-Log "  [OK] Installation successful" -Level INFO
+            Write-Log "    Feature: $($feature.DisplayName)"            
             if ($result.FeatureResult) {
-                Write-LogMessage "    Components installed: $($result.FeatureResult.Count)" -Level Info
-            }
+                Write-Log "    Components installed: $($result.FeatureResult.Count)"            }
             
             if ($result.RestartNeeded -eq 'Yes') {
-                Write-LogMessage "    ⚠ Restart required" -Level Warning
+                Write-Log "    [WARN] Restart required" -Level WARN
             }
             
             $script:FeaturesInstalled++
             return $true
         }
         else {
-            Write-LogMessage "  ✗ Installation failed" -Level Error
+            Write-Log "  [FAIL] Installation failed" -Level ERROR
             
             if ($result.ExitCode) {
-                Write-LogMessage "    Exit code: $($result.ExitCode)" -Level Error
+                Write-Log "    Exit code: $($result.ExitCode)" -Level ERROR
             }
             
             $script:OperationsFailed++
@@ -258,7 +242,7 @@ function Install-WindowsFeatureWithDependencies {
         }
     }
     catch {
-        Write-LogMessage "  ✗ Error installing feature: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error installing feature: $($_.Exception.Message)" -Level ERROR
         $script:OperationsFailed++
         return $false
     }
@@ -270,9 +254,7 @@ function Install-MultipleFeatures {
         [string[]]$Features
     )
     
-    Write-LogMessage "Installing $($Features.Count) feature(s)..." -Level Info
-    Write-LogMessage "" -Level Info
-    
+    Write-Log "Installing $($Features.Count) feature(s)..."    Write-Log ""    
     $restartNeeded = $false
     
     foreach ($featureName in $Features) {
@@ -289,9 +271,7 @@ function Install-MultipleFeatures {
                 $restartNeeded = $true
             }
         }
-        
-        Write-LogMessage "" -Level Info
-    }
+            }
     
     return $restartNeeded
 }
@@ -306,47 +286,44 @@ function Remove-WindowsFeatureComplete {
         [string]$Name
     )
     
-    Write-LogMessage "Removing feature: $Name" -Level Info
-    
+    Write-Log "Removing feature: $Name"    
     try {
         # Check if installed
         $feature = Get-WindowsFeature -Name $Name -ErrorAction Stop
         
         if (-not $feature) {
-            Write-LogMessage "  ✗ Feature not found: $Name" -Level Error
+            Write-Log "  [FAIL] Feature not found: $Name" -Level ERROR
             $script:OperationsFailed++
             return $false
         }
         
         if (-not $feature.Installed) {
-            Write-LogMessage "  ⚠ Feature is not installed" -Level Warning
+            Write-Log "  [WARN] Feature is not installed" -Level WARN
             return $true
         }
         
-        Write-LogMessage "  Removing..." -Level Info
-        
+        Write-Log "  Removing..."        
         # Remove feature
         $result = Uninstall-WindowsFeature -Name $Name -Remove -ErrorAction Stop
         
         if ($result.Success) {
-            Write-LogMessage "  ✓ Removal successful" -Level Success
-            Write-LogMessage "    Feature: $($feature.DisplayName)" -Level Info
-            
+            Write-Log "  [OK] Removal successful" -Level INFO
+            Write-Log "    Feature: $($feature.DisplayName)"            
             if ($result.RestartNeeded -eq 'Yes') {
-                Write-LogMessage "    ⚠ Restart required" -Level Warning
+                Write-Log "    [WARN] Restart required" -Level WARN
             }
             
             $script:FeaturesRemoved++
             return $true
         }
         else {
-            Write-LogMessage "  ✗ Removal failed" -Level Error
+            Write-Log "  [FAIL] Removal failed" -Level ERROR
             $script:OperationsFailed++
             return $false
         }
     }
     catch {
-        Write-LogMessage "  ✗ Error removing feature: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error removing feature: $($_.Exception.Message)" -Level ERROR
         $script:OperationsFailed++
         return $false
     }
@@ -358,9 +335,7 @@ function Remove-MultipleFeatures {
         [string[]]$Features
     )
     
-    Write-LogMessage "Removing $($Features.Count) feature(s)..." -Level Info
-    Write-LogMessage "" -Level Info
-    
+    Write-Log "Removing $($Features.Count) feature(s)..."    Write-Log ""    
     $restartNeeded = $false
     
     foreach ($featureName in $Features) {
@@ -372,9 +347,7 @@ function Remove-MultipleFeatures {
                 $restartNeeded = $true
             }
         }
-        
-        Write-LogMessage "" -Level Info
-    }
+            }
     
     return $restartNeeded
 }
@@ -434,20 +407,14 @@ function Get-CommonFeatureSets {
 }
 
 function Show-CommonFeatureSets {
-    Write-LogMessage "Common Feature Sets:" -Level Info
-    Write-LogMessage "=" * 80 -Level Info
-    
+    Write-Log "Common Feature Sets:"    Write-Log "=" * 80    
     $sets = Get-CommonFeatureSets
     
-    foreach ($setName in $sets.Keys | Sort-Object) {
-        Write-LogMessage "" -Level Info
-        Write-LogMessage "$setName ($($sets[$setName].Count) features):" -Level Info
-        
+    foreach ($setName in $sets.Keys | Sort-Object) {        Write-Log "$setName ($($sets[$setName].Count) features):"        
         foreach ($feature in $sets[$setName]) {
             $installed = Get-WindowsFeature -Name $feature -ErrorAction SilentlyContinue
             $status = if ($installed -and $installed.Installed) { "[Installed]" } else { "[Available]" }
-            Write-LogMessage "  $status $feature" -Level Info
-        }
+            Write-Log "  $status $feature"        }
     }
 }
 
@@ -456,8 +423,7 @@ function Show-CommonFeatureSets {
 #region Reporting
 
 function Get-FeatureInstallationReport {
-    Write-LogMessage "Generating feature installation report..." -Level Info
-    
+    Write-Log "Generating feature installation report..."    
     try {
         $reportFile = Join-Path $LogDir "windows-features-$timestamp.txt"
         $report = @()
@@ -493,11 +459,11 @@ function Get-FeatureInstallationReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Feature report saved to: $reportFile" -Level Success
+        Write-Log "Feature report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -533,23 +499,18 @@ function Test-PendingReboot {
 function Main {
     $scriptStartTime = Get-Date
     
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Windows Features Management" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+    Write-Log '===== Manage_Windows_Features starting ====='
+    Write-Log "Log file: $LogFile"
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
     # Check if ServerManager module is available
     if (-not (Get-Module -Name ServerManager -ListAvailable)) {
-        Write-LogMessage "ServerManager module not available. This script requires Windows Server." -Level Error
+        Write-Log "ServerManager module not available. This script requires Windows Server." -Level ERROR
         exit 1
     }
     
@@ -574,7 +535,7 @@ function Main {
     # Install features
     if ($Install) {
         if (-not $FeatureName) {
-            Write-LogMessage "FeatureName parameter is required for installation" -Level Error
+            Write-Log "FeatureName parameter is required for installation" -Level ERROR
             exit 1
         }
         
@@ -585,7 +546,7 @@ function Main {
     # Remove features
     if ($Remove) {
         if (-not $FeatureName) {
-            Write-LogMessage "FeatureName parameter is required for removal" -Level Error
+            Write-Log "FeatureName parameter is required for removal" -Level ERROR
             exit 1
         }
         
@@ -595,9 +556,7 @@ function Main {
     
     # If no operation specified, show installed features
     if (-not $operationPerformed) {
-        Write-LogMessage "No operation specified. Use -ListInstalled, -ListAvailable, -Install, or -Remove" -Level Info
-        Write-LogMessage "" -Level Info
-        Show-FeaturesList -Filter 'Installed'
+        Write-Log "No operation specified. Use -ListInstalled, -ListAvailable, -Install, or -Remove"        Write-Log ""        Show-FeaturesList -Filter 'Installed'
     }
     
     # Generate report
@@ -605,43 +564,30 @@ function Main {
     
     # Handle restart if needed
     if ($restartNeeded) {
-        Write-LogMessage "" -Level Info
-        Write-LogMessage "========================================" -Level Warning
-        Write-LogMessage "RESTART REQUIRED" -Level Warning
-        Write-LogMessage "========================================" -Level Warning
-        
+        Write-Log 'Restart required to complete the operation.' -Level WARN
+
         if ($RestartIfNeeded) {
-            Write-LogMessage "System will restart in 60 seconds..." -Level Warning
+            Write-Log 'System will restart in 60 seconds...' -Level WARN
             Start-Sleep -Seconds 5
+            try { Stop-Transcript | Out-Null } catch {}
             Restart-Computer -Force
             exit 0
         }
         else {
-            Write-LogMessage "Please restart the system to complete the operation" -Level Warning
-            Write-LogMessage "Use -RestartIfNeeded to restart automatically" -Level Info
+            Write-Log 'Use -RestartIfNeeded to restart automatically.' -Level WARN
         }
     }
-    
+
     # Summary
     $scriptEndTime = Get-Date
     $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Features Management Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Features Installed: $script:FeaturesInstalled" -Level Info
-    Write-LogMessage "Features Removed: $script:FeaturesRemoved" -Level Info
-    Write-LogMessage "Operations Failed: $script:OperationsFailed" -Level Info
-    Write-LogMessage "Duration: $([math]::Round($duration.TotalSeconds, 2)) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
+
     if ($script:OperationsFailed -eq 0) {
-        Write-LogMessage "Windows features management completed successfully!" -Level Success
+        Write-Log "===== Manage_Windows_Features complete in $([int]$duration.TotalSeconds)s applied=$($script:FeaturesInstalled + $script:FeaturesRemoved) failed=$script:OperationsFailed ====="
         exit 0
     }
     else {
-        Write-LogMessage "Features management completed with $script:OperationsFailed failures" -Level Warning
+        Write-Log "Features management completed with $script:OperationsFailed failure(s)." -Level ERROR
         exit 1
     }
 }
@@ -651,9 +597,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

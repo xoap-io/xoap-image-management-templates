@@ -80,29 +80,17 @@ $script:ConfigurationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+# Leveled logging function (stdout is the state channel)
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    # Ensure log directory exists
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+    Write-Host "[$timestamp] [$Level] [NTP] $Message"
 }
 
 function Test-IsAdministrator {
@@ -132,25 +120,25 @@ function Test-IsDomainMember {
 }
 
 function Stop-TimeService {
-    Write-LogMessage "Stopping Windows Time service..." -Level Info
+    Write-Log "Stopping Windows Time service..." -Level INFO
     
     try {
         $service = Get-Service -Name W32Time -ErrorAction SilentlyContinue
         if ($service -and $service.Status -eq 'Running') {
             Stop-Service -Name W32Time -Force
-            Write-LogMessage "Windows Time service stopped" -Level Success
+            Write-Log "Windows Time service stopped" -Level INFO
             return $true
         }
         return $true
     }
     catch {
-        Write-LogMessage "Error stopping service: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error stopping service: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
 
 function Start-TimeService {
-    Write-LogMessage "Starting Windows Time service..." -Level Info
+    Write-Log "Starting Windows Time service..." -Level INFO
     
     try {
         Set-Service -Name W32Time -StartupType Automatic
@@ -160,35 +148,35 @@ function Start-TimeService {
         
         $service = Get-Service -Name W32Time
         if ($service.Status -eq 'Running') {
-            Write-LogMessage "Windows Time service started successfully" -Level Success
+            Write-Log "Windows Time service started successfully" -Level INFO
             return $true
         }
         else {
-            Write-LogMessage "Service status: $($service.Status)" -Level Warning
+            Write-Log "Service status: $($service.Status)" -Level WARN
             return $false
         }
     }
     catch {
-        Write-LogMessage "Error starting service: $($_.Exception.Message)" -Level Error
+        Write-Log "Error starting service: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Set-TimeZoneConfiguration {
     if ([string]::IsNullOrWhiteSpace($TimeZone)) {
-        Write-LogMessage "No timezone specified, skipping timezone configuration" -Level Info
+        Write-Log "No timezone specified, skipping timezone configuration" -Level INFO
         return $true
     }
     
-    Write-LogMessage "Setting timezone to: $TimeZone" -Level Info
+    Write-Log "Setting timezone to: $TimeZone" -Level INFO
     
     try {
         # Get current timezone
         $currentTZ = Get-TimeZone
-        Write-LogMessage "Current timezone: $($currentTZ.Id)" -Level Info
+        Write-Log "Current timezone: $($currentTZ.Id)" -Level INFO
         
         if ($currentTZ.Id -eq $TimeZone) {
-            Write-LogMessage "Timezone already set correctly" -Level Info
+            Write-Log "Timezone already set correctly" -Level INFO
             return $true
         }
         
@@ -198,13 +186,13 @@ function Set-TimeZoneConfiguration {
         # Set timezone
         Set-TimeZone -Id $TimeZone -ErrorAction Stop
         
-        Write-LogMessage "Timezone configured successfully: $TimeZone" -Level Success
+        Write-Log "Timezone configured successfully: $TimeZone" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error setting timezone: $($_.Exception.Message)" -Level Error
-        Write-LogMessage "Use 'Get-TimeZone -ListAvailable' to see valid timezone IDs" -Level Info
+        Write-Log "Error setting timezone: $($_.Exception.Message)" -Level ERROR
+        Write-Log "Use 'Get-TimeZone -ListAvailable' to see valid timezone IDs" -Level INFO
         $script:ConfigurationsFailed++
         return $false
     }
@@ -212,25 +200,25 @@ function Set-TimeZoneConfiguration {
 
 function Disable-HyperVTimeSync {
     if (-not $DisableVMICTimeProvider) {
-        Write-LogMessage "Hyper-V time sync not disabled (use -DisableVMICTimeProvider to disable)" -Level Info
+        Write-Log "Hyper-V time sync not disabled (use -DisableVMICTimeProvider to disable)" -Level INFO
         return $true
     }
     
-    Write-LogMessage "Disabling Hyper-V time synchronization..." -Level Info
+    Write-Log "Disabling Hyper-V time synchronization..." -Level INFO
     
     try {
         # Check if running on Hyper-V
         $computerSystem = Get-CimInstance -ClassName Win32_ComputerSystem
         if ($computerSystem.Model -notlike '*Virtual Machine*' -and 
             $computerSystem.Model -notlike '*Hyper-V*') {
-            Write-LogMessage "Not running on Hyper-V, skipping VMIC time provider disable" -Level Info
+            Write-Log "Not running on Hyper-V, skipping VMIC time provider disable" -Level INFO
             return $true
         }
         
         # Disable VMIC Time Provider
         if (Test-Path $VMICTimeProviderPath) {
             Set-ItemProperty -Path $VMICTimeProviderPath -Name "Enabled" -Value 0 -Type DWord
-            Write-LogMessage "Hyper-V time synchronization disabled" -Level Success
+            Write-Log "Hyper-V time synchronization disabled" -Level INFO
             $script:ConfigurationsApplied++
         }
         
@@ -238,30 +226,30 @@ function Disable-HyperVTimeSync {
         $timeSync = Get-VMIntegrationService -VMName $env:COMPUTERNAME -Name "Time Synchronization" -ErrorAction SilentlyContinue
         if ($timeSync) {
             Disable-VMIntegrationService -VMName $env:COMPUTERNAME -Name "Time Synchronization" -ErrorAction SilentlyContinue
-            Write-LogMessage "Hyper-V Integration Services time sync disabled" -Level Success
+            Write-Log "Hyper-V Integration Services time sync disabled" -Level INFO
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "Error disabling Hyper-V time sync: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling Hyper-V time sync: $($_.Exception.Message)" -Level WARN
         return $true  # Non-critical error
     }
 }
 
 function Set-NTPConfiguration {
-    Write-LogMessage "Configuring NTP settings..." -Level Info
+    Write-Log "Configuring NTP settings..." -Level INFO
     
     try {
         Stop-TimeService | Out-Null
         
         # Configure NTP client
-        Write-LogMessage "Configuring NTP client..." -Level Info
+        Write-Log "Configuring NTP client..." -Level INFO
         
         # Set NTP servers
         $ntpServerString = ($NTPServers | ForEach-Object { "$_,0x9" }) -join ' '
         Set-ItemProperty -Path $W32TimeParameters -Name "NtpServer" -Value $ntpServerString
-        Write-LogMessage "NTP servers configured: $($NTPServers -join ', ')" -Level Info
+        Write-Log "NTP servers configured: $($NTPServers -join ', ')" -Level INFO
         
         # Set time source type (NTP)
         Set-ItemProperty -Path $W32TimeParameters -Name "Type" -Value "NTP"
@@ -281,14 +269,14 @@ function Set-NTPConfiguration {
             Set-ItemProperty -Path $W32TimeConfig -Name "MaxNegPhaseCorrection" -Value $MaxNegPhaseCorrection -Type DWord
             Set-ItemProperty -Path $W32TimeConfig -Name "UpdateInterval" -Value $SyncInterval -Type DWord
             
-            Write-LogMessage "Max positive correction: $MaxPosPhaseCorrection seconds" -Level Info
-            Write-LogMessage "Max negative correction: $MaxNegPhaseCorrection seconds" -Level Info
-            Write-LogMessage "Update interval: $SyncInterval seconds" -Level Info
+            Write-Log "Max positive correction: $MaxPosPhaseCorrection seconds" -Level INFO
+            Write-Log "Max negative correction: $MaxNegPhaseCorrection seconds" -Level INFO
+            Write-Log "Update interval: $SyncInterval seconds" -Level INFO
         }
         
         # Configure as domain time source if requested
         if ($SetAsDomainTimeSource) {
-            Write-LogMessage "Configuring as authoritative domain time source..." -Level Info
+            Write-Log "Configuring as authoritative domain time source..." -Level INFO
             
             if (Test-IsDomainController) {
                 Set-ItemProperty -Path $W32TimeConfig -Name "AnnounceFlags" -Value 5 -Type DWord
@@ -300,27 +288,27 @@ function Set-NTPConfiguration {
                     Set-ItemProperty -Path $ntpServerPath -Name "Enabled" -Value 1 -Type DWord
                 }
                 
-                Write-LogMessage "Configured as reliable time source for domain" -Level Success
+                Write-Log "Configured as reliable time source for domain" -Level INFO
             }
             else {
-                Write-LogMessage "Not a domain controller - skipping domain time source configuration" -Level Warning
+                Write-Log "Not a domain controller - skipping domain time source configuration" -Level WARN
             }
         }
         
-        Write-LogMessage "NTP configuration completed" -Level Success
+        Write-Log "NTP configuration completed" -Level INFO
         $script:ConfigurationsApplied++
         
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring NTP: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring NTP: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Sync-TimeNow {
-    Write-LogMessage "Performing immediate time synchronization..." -Level Info
+    Write-Log "Performing immediate time synchronization..." -Level INFO
     
     try {
         # Register time service
@@ -330,60 +318,60 @@ function Sync-TimeNow {
         Start-TimeService | Out-Null
         
         # Force resync
-        Write-LogMessage "Forcing time resynchronization..." -Level Info
+        Write-Log "Forcing time resynchronization..." -Level INFO
         $result = w32tm.exe /resync /force 2>&1
         
         Start-Sleep -Seconds 3
         
-        Write-LogMessage "Time synchronization initiated" -Level Success
+        Write-Log "Time synchronization initiated" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error during sync: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error during sync: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
 
 function Test-NTPConfiguration {
-    Write-LogMessage "Verifying NTP configuration..." -Level Info
+    Write-Log "Verifying NTP configuration..." -Level INFO
     
     try {
         # Check service status
         $service = Get-Service -Name W32Time -ErrorAction SilentlyContinue
         if ($service) {
-            Write-LogMessage "W32Time Service Status: $($service.Status)" -Level Info
-            Write-LogMessage "W32Time Service Startup: $($service.StartType)" -Level Info
+            Write-Log "W32Time Service Status: $($service.Status)" -Level INFO
+            Write-Log "W32Time Service Startup: $($service.StartType)" -Level INFO
         }
         
         # Check current time source
         $timeSource = w32tm.exe /query /source 2>&1
-        Write-LogMessage "Current time source: $timeSource" -Level Info
+        Write-Log "Current time source: $timeSource" -Level INFO
         
         # Check NTP status
-        Write-LogMessage "Querying NTP status..." -Level Info
+        Write-Log "Querying NTP status..." -Level INFO
         $status = w32tm.exe /query /status 2>&1
         
         if ($status -match "Source:") {
-            Write-LogMessage "NTP is functioning" -Level Success
+            Write-Log "NTP is functioning" -Level INFO
         }
         
         # Get time configuration
         $config = w32tm.exe /query /configuration 2>&1
         
         # Check peers
-        Write-LogMessage "Checking configured NTP peers..." -Level Info
+        Write-Log "Checking configured NTP peers..." -Level INFO
         $peers = w32tm.exe /query /peers 2>&1
         
         return $true
     }
     catch {
-        Write-LogMessage "Error during verification: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error during verification: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
 
 function Get-NTPStatusReport {
-    Write-LogMessage "Generating NTP status report..." -Level Info
+    Write-Log "Generating NTP status report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "ntp-config-$timestamp.txt"
@@ -448,11 +436,11 @@ function Get-NTPStatusReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "NTP status report saved to: $reportFile" -Level Success
+        Write-Log "NTP status report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -462,27 +450,31 @@ function Get-NTPStatusReport {
 #region Main Execution
 
 function Main {
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
+    }
+
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "NTP Configuration for Windows Server" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Configure_NTP starting ====="
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
     # Check domain status
     if (Test-IsDomainMember -and -not $SetAsDomainTimeSource) {
-        Write-LogMessage "WARNING: This is a domain member" -Level Warning
-        Write-LogMessage "Domain members typically sync time from domain controllers" -Level Warning
-        Write-LogMessage "Manual NTP configuration may conflict with domain policy" -Level Warning
+        Write-Log "WARNING: This is a domain member" -Level WARN
+        Write-Log "Domain members typically sync time from domain controllers" -Level WARN
+        Write-Log "Manual NTP configuration may conflict with domain policy" -Level WARN
     }
     
     # Set timezone if specified
@@ -495,7 +487,7 @@ function Main {
     $configSuccess = Set-NTPConfiguration
     
     if (-not $configSuccess) {
-        Write-LogMessage "NTP configuration failed" -Level Error
+        Write-Log "NTP configuration failed" -Level ERROR
         exit 1
     }
     
@@ -510,31 +502,19 @@ function Main {
     Get-NTPStatusReport | Out-Null
     
     # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configuration Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configurations Applied: $script:ConfigurationsApplied" -Level Info
-    Write-LogMessage "Configuration Failures: $script:ConfigurationsFailed" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    Write-LogMessage "" -Level Info
-    
+    $duration = ((Get-Date) - $scriptStartTime).TotalSeconds
+
     # Display current time info
     $currentTime = Get-Date
-    Write-LogMessage "Current System Time: $($currentTime.ToString('yyyy-MM-dd HH:mm:ss'))" -Level Info
-    Write-LogMessage "Current UTC Time: $($currentTime.ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss'))" -Level Info
-    
+    Write-Log "Current System Time: $($currentTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+    Write-Log "Current UTC Time: $($currentTime.ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss'))"
+
     if ($script:ConfigurationsFailed -eq 0) {
-        Write-LogMessage "NTP configuration completed successfully!" -Level Success
-        Write-LogMessage "Monitor time sync with: w32tm /query /status" -Level Info
+        Write-Log "===== Configure_NTP complete in $([int]$duration)s; applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) ====="
         exit 0
     }
     else {
-        Write-LogMessage "Configuration completed with errors. Check logs." -Level Warning
+        Write-Log "===== Configure_NTP complete in $([int]$duration)s; applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) =====" -Level WARN
         exit 1
     }
 }
@@ -544,9 +524,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

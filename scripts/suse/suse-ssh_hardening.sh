@@ -147,13 +147,13 @@ Banner /etc/ssh/ssh_banner
 # DenyGroups noSSH
 EOF
 
-log_info "✓ SSH hardening configuration created"
+log_info "[OK] SSH hardening configuration created"
 ((CONFIGS_MODIFIED++))
 
 # Ensure the main config includes drop-in directory
 if ! grep -q "^Include /etc/ssh/sshd_config.d/\*.conf" "$SSHD_CONFIG"; then
     sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' "$SSHD_CONFIG"
-    log_info "✓ Enabled sshd_config.d inclusion"
+    log_info "[OK] Enabled sshd_config.d inclusion"
     ((CONFIGS_MODIFIED++))
 fi
 
@@ -170,14 +170,14 @@ cat > "$SSH_BANNER" <<'EOF'
 #############################################################################
 EOF
 
-log_info "✓ SSH banner created"
+log_info "[OK] SSH banner created"
 ((CONFIGS_MODIFIED++))
 
 # Set proper permissions
 chmod 600 "$SSHD_HARDENING"
 chmod 644 "$SSH_BANNER"
 
-log_info "✓ Permissions set correctly"
+log_info "[OK] Permissions set correctly"
 
 # Generate new host keys if needed
 log_info "Checking SSH host keys..."
@@ -185,14 +185,14 @@ log_info "Checking SSH host keys..."
 if [[ ! -f /etc/ssh/ssh_host_ed25519_key ]]; then
     log_info "Generating Ed25519 host key..."
     ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" -q
-    log_info "✓ Ed25519 host key generated"
+    log_info "[OK] Ed25519 host key generated"
     ((CONFIGS_MODIFIED++))
 fi
 
 if [[ ! -f /etc/ssh/ssh_host_rsa_key ]]; then
     log_info "Generating RSA 4096 host key..."
     ssh-keygen -t rsa -b 4096 -f /etc/ssh/ssh_host_rsa_key -N "" -q
-    log_info "✓ RSA 4096 host key generated"
+    log_info "[OK] RSA 4096 host key generated"
     ((CONFIGS_MODIFIED++))
 fi
 
@@ -201,7 +201,7 @@ for key_type in dsa ecdsa; do
     if [[ -f "/etc/ssh/ssh_host_${key_type}_key" ]]; then
         log_info "Removing weak $key_type host key..."
         rm -f "/etc/ssh/ssh_host_${key_type}_key" "/etc/ssh/ssh_host_${key_type}_key.pub"
-        log_info "✓ Removed $key_type key"
+        log_info "[OK] Removed $key_type key"
         ((CONFIGS_MODIFIED++))
     fi
 done
@@ -210,7 +210,7 @@ done
 log_info "Validating SSH configuration..."
 
 if sshd -t 2>/tmp/sshd-test.log; then
-    log_info "✓ SSH configuration is valid"
+    log_info "[OK] SSH configuration is valid"
 else
     log_error "SSH configuration validation failed:"
     cat /tmp/sshd-test.log | while IFS= read -r line; do
@@ -225,7 +225,7 @@ fi
 log_info "Restarting SSH service..."
 
 if systemctl restart sshd; then
-    log_info "✓ SSH service restarted successfully"
+    log_info "[OK] SSH service restarted successfully"
     ((CONFIGS_MODIFIED++))
 else
     log_error "Failed to restart SSH service"
@@ -239,7 +239,7 @@ fi
 sleep 2
 
 if systemctl is-active --quiet sshd; then
-    log_info "✓ SSH service is running"
+    log_info "[OK] SSH service is running"
 else
     log_error "SSH service is not running"
     exit 1

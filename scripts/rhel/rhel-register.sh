@@ -158,16 +158,16 @@ log_info "Executing: ${REGISTER_CMD}"
 
 if [[ "$AUTH_METHOD" == "activation-key" ]]; then
     if subscription-manager register --org="$RHSM_ORG" --activationkey="$RHSM_ACTIVATION_KEY"; then
-        log_info "✓ System registered successfully"
+        log_info "[OK] System registered successfully"
     else
-        log_error "✗ Registration failed"
+        log_error "[FAIL] Registration failed"
         exit 1
     fi
 else
     if subscription-manager register --username="$RHSM_USERNAME" --password="$RHSM_PASSWORD" ${AUTO_ATTACH:+--auto-attach}; then
-        log_info "✓ System registered successfully"
+        log_info "[OK] System registered successfully"
     else
-        log_error "✗ Registration failed"
+        log_error "[FAIL] Registration failed"
         exit 1
     fi
 fi
@@ -177,9 +177,9 @@ if [[ "$AUTH_METHOD" == "username-password" ]] && [[ "$AUTO_ATTACH" == "true" ]]
     log_info "Auto-attaching subscription..."
     
     if subscription-manager attach --auto; then
-        log_info "✓ Subscription attached successfully"
+        log_info "[OK] Subscription attached successfully"
     else
-        log_warn "✗ Failed to auto-attach subscription"
+        log_warn "[FAIL] Failed to auto-attach subscription"
         log_info "You may need to manually attach a subscription"
     fi
 fi

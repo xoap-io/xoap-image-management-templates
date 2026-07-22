@@ -95,29 +95,25 @@ $script:OperationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+$script:Component = 'Certificates'
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+
+    $line = "[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message
+    Write-Host $line
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [Certificates] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 function Test-IsAdministrator {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -143,12 +139,12 @@ function Import-PFXCertificate {
         [string]$Location
     )
     
-    Write-LogMessage "Importing PFX certificate from: $Path" -Level Info
+    Write-Log "Importing PFX certificate from: $Path" -Level INFO
     
     try {
         # Validate file exists
         if (-not (Test-Path $Path)) {
-            Write-LogMessage "Certificate file not found: $Path" -Level Error
+            Write-Log "Certificate file not found: $Path" -Level ERROR
             $script:OperationsFailed++
             return $false
         }
@@ -166,29 +162,29 @@ function Import-PFXCertificate {
         
         $cert = Import-PfxCertificate @importParams -ErrorAction Stop
         
-        Write-LogMessage "  ✓ Certificate imported successfully" -Level Success
-        Write-LogMessage "    Subject: $($cert.Subject)" -Level Info
-        Write-LogMessage "    Thumbprint: $($cert.Thumbprint)" -Level Info
-        Write-LogMessage "    Issuer: $($cert.Issuer)" -Level Info
-        Write-LogMessage "    Valid From: $($cert.NotBefore)" -Level Info
-        Write-LogMessage "    Valid To: $($cert.NotAfter)" -Level Info
+        Write-Log "  [OK] Certificate imported successfully" -Level INFO
+        Write-Log "    Subject: $($cert.Subject)" -Level INFO
+        Write-Log "    Thumbprint: $($cert.Thumbprint)" -Level INFO
+        Write-Log "    Issuer: $($cert.Issuer)" -Level INFO
+        Write-Log "    Valid From: $($cert.NotBefore)" -Level INFO
+        Write-Log "    Valid To: $($cert.NotAfter)" -Level INFO
         
         # Check if expired
         if ($cert.NotAfter -lt (Get-Date)) {
-            Write-LogMessage "    ⚠ WARNING: Certificate is expired!" -Level Warning
+            Write-Log "    [WARN] WARNING: Certificate is expired!" -Level WARN
         }
         
         # Check validity period
         $daysRemaining = ($cert.NotAfter - (Get-Date)).Days
         if ($daysRemaining -lt 30 -and $daysRemaining -gt 0) {
-            Write-LogMessage "    ⚠ WARNING: Certificate expires in $daysRemaining days" -Level Warning
+            Write-Log "    [WARN] WARNING: Certificate expires in $daysRemaining days" -Level WARN
         }
         
         $script:CertificatesImported++
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error importing PFX certificate: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error importing PFX certificate: $($_.Exception.Message)" -Level ERROR
         $script:OperationsFailed++
         return $false
     }
@@ -206,12 +202,12 @@ function Import-CERCertificate {
         [string]$Location
     )
     
-    Write-LogMessage "Importing CER certificate from: $Path" -Level Info
+    Write-Log "Importing CER certificate from: $Path" -Level INFO
     
     try {
         # Validate file exists
         if (-not (Test-Path $Path)) {
-            Write-LogMessage "Certificate file not found: $Path" -Level Error
+            Write-Log "Certificate file not found: $Path" -Level ERROR
             $script:OperationsFailed++
             return $false
         }
@@ -219,16 +215,16 @@ function Import-CERCertificate {
         # Import certificate
         $cert = Import-Certificate -FilePath $Path -CertStoreLocation "Cert:\$Location\$StoreName" -ErrorAction Stop
         
-        Write-LogMessage "  ✓ Certificate imported successfully" -Level Success
-        Write-LogMessage "    Subject: $($cert.Subject)" -Level Info
-        Write-LogMessage "    Thumbprint: $($cert.Thumbprint)" -Level Info
-        Write-LogMessage "    Issuer: $($cert.Issuer)" -Level Info
+        Write-Log "  [OK] Certificate imported successfully" -Level INFO
+        Write-Log "    Subject: $($cert.Subject)" -Level INFO
+        Write-Log "    Thumbprint: $($cert.Thumbprint)" -Level INFO
+        Write-Log "    Issuer: $($cert.Issuer)" -Level INFO
         
         $script:CertificatesImported++
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error importing CER certificate: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error importing CER certificate: $($_.Exception.Message)" -Level ERROR
         $script:OperationsFailed++
         return $false
     }
@@ -243,24 +239,24 @@ function Import-CertificateChain {
         [string]$Location
     )
     
-    Write-LogMessage "Importing certificate chain from: $Path" -Level Info
+    Write-Log "Importing certificate chain from: $Path" -Level INFO
     
     try {
         # Import root CA to Root store
         $rootCert = Import-Certificate -FilePath $Path -CertStoreLocation "Cert:\$Location\Root" -ErrorAction Stop
-        Write-LogMessage "  ✓ Root CA imported to Trusted Root store" -Level Success
+        Write-Log "  [OK] Root CA imported to Trusted Root store" -Level INFO
         
         # Import intermediate to CA store
         $intermediateCert = Import-Certificate -FilePath $Path -CertStoreLocation "Cert:\$Location\CA" -ErrorAction SilentlyContinue
         if ($intermediateCert) {
-            Write-LogMessage "  ✓ Intermediate CA imported to Intermediate CA store" -Level Success
+            Write-Log "  [OK] Intermediate CA imported to Intermediate CA store" -Level INFO
         }
         
         $script:CertificatesImported++
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error importing certificate chain: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error importing certificate chain: $($_.Exception.Message)" -Level ERROR
         $script:OperationsFailed++
         return $false
     }
@@ -281,7 +277,7 @@ function Export-Certificate {
         [switch]$IncludePrivateKey
     )
     
-    Write-LogMessage "Exporting certificate with thumbprint: $CertThumbprint" -Level Info
+    Write-Log "Exporting certificate with thumbprint: $CertThumbprint" -Level INFO
     
     try {
         # Find certificate
@@ -290,12 +286,12 @@ function Export-Certificate {
             Select-Object -First 1
         
         if (-not $cert) {
-            Write-LogMessage "Certificate not found: $CertThumbprint" -Level Error
+            Write-Log "Certificate not found: $CertThumbprint" -Level ERROR
             $script:OperationsFailed++
             return $false
         }
         
-        Write-LogMessage "  Found certificate: $($cert.Subject)" -Level Info
+        Write-Log "  Found certificate: $($cert.Subject)" -Level INFO
         
         # Create output directory if needed
         $outputDir = Split-Path -Path $Output -Parent
@@ -306,7 +302,7 @@ function Export-Certificate {
         if ($IncludePrivateKey) {
             # Export with private key (PFX)
             if (-not $cert.HasPrivateKey) {
-                Write-LogMessage "  ⚠ Certificate does not have a private key" -Level Warning
+                Write-Log "  [WARN] Certificate does not have a private key" -Level WARN
                 $IncludePrivateKey = $false
             }
             else {
@@ -315,9 +311,9 @@ function Export-Certificate {
                 
                 Export-PfxCertificate -Cert $cert -FilePath $Output -Password $exportPassword -ErrorAction Stop | Out-Null
                 
-                Write-LogMessage "  ✓ Certificate exported with private key (PFX)" -Level Success
-                Write-LogMessage "    Export password: ExportPassword123!" -Level Warning
-                Write-LogMessage "    Output: $Output" -Level Info
+                Write-Log "  [OK] Certificate exported with private key (PFX)" -Level INFO
+                Write-Log "    Export password: ExportPassword123!" -Level WARN
+                Write-Log "    Output: $Output" -Level INFO
                 
                 $script:CertificatesExported++
                 return $true
@@ -327,14 +323,14 @@ function Export-Certificate {
         # Export without private key (CER)
         Export-Certificate -Cert $cert -FilePath $Output -ErrorAction Stop | Out-Null
         
-        Write-LogMessage "  ✓ Certificate exported (CER)" -Level Success
-        Write-LogMessage "    Output: $Output" -Level Info
+        Write-Log "  [OK] Certificate exported (CER)" -Level INFO
+        Write-Log "    Output: $Output" -Level INFO
         
         $script:CertificatesExported++
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error exporting certificate: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error exporting certificate: $($_.Exception.Message)" -Level ERROR
         $script:OperationsFailed++
         return $false
     }
@@ -382,7 +378,7 @@ function Test-Certificate {
 }
 
 function Get-CertificateValidationReport {
-    Write-LogMessage "Validating certificates..." -Level Info
+    Write-Log "Validating certificates..." -Level INFO
     
     $stores = @(
         @{ Name = 'My'; Location = 'LocalMachine'; Description = 'Personal' }
@@ -394,26 +390,25 @@ function Get-CertificateValidationReport {
     $allIssues = @()
     
     foreach ($storeInfo in $stores) {
-        Write-LogMessage "" -Level Info
-        Write-LogMessage "Checking store: $($storeInfo.Description) (Cert:\$($storeInfo.Location)\$($storeInfo.Name))" -Level Info
+        Write-Log "Checking store: $($storeInfo.Description) (Cert:\$($storeInfo.Location)\$($storeInfo.Name))" -Level INFO
         
         try {
             $certs = Get-ChildItem -Path "Cert:\$($storeInfo.Location)\$($storeInfo.Name)" -ErrorAction Stop
             
             if ($certs.Count -eq 0) {
-                Write-LogMessage "  No certificates found" -Level Info
+                Write-Log "  No certificates found" -Level INFO
                 continue
             }
             
-            Write-LogMessage "  Found $($certs.Count) certificate(s)" -Level Info
+            Write-Log "  Found $($certs.Count) certificate(s)" -Level INFO
             
             foreach ($cert in $certs) {
                 $issues = Test-Certificate -Certificate $cert
                 
                 if ($issues.Count -gt 0) {
-                    Write-LogMessage "  ⚠ $($cert.Subject)" -Level Warning
-                    Write-LogMessage "    Thumbprint: $($cert.Thumbprint)" -Level Warning
-                    Write-LogMessage "    Issues: $($issues -join ', ')" -Level Warning
+                    Write-Log "  [WARN] $($cert.Subject)" -Level WARN
+                    Write-Log "    Thumbprint: $($cert.Thumbprint)" -Level WARN
+                    Write-Log "    Issues: $($issues -join ', ')" -Level WARN
                     
                     $allIssues += [PSCustomObject]@{
                         Store = $storeInfo.Description
@@ -424,12 +419,12 @@ function Get-CertificateValidationReport {
                     }
                 }
                 else {
-                    Write-LogMessage "  ✓ $($cert.Subject)" -Level Success
+                    Write-Log "  [OK] $($cert.Subject)" -Level INFO
                 }
             }
         }
         catch {
-            Write-LogMessage "  ✗ Error checking store: $($_.Exception.Message)" -Level Error
+            Write-Log "  [FAIL] Error checking store: $($_.Exception.Message)" -Level ERROR
         }
     }
     
@@ -441,43 +436,42 @@ function Get-CertificateValidationReport {
 #region Certificate Cleanup
 
 function Remove-ExpiredCertificates {
-    Write-LogMessage "Removing expired certificates..." -Level Info
+    Write-Log "Removing expired certificates..." -Level INFO
     
     $stores = @('My', 'Root', 'CA', 'TrustedPublisher')
     $location = 'LocalMachine'
     
     foreach ($storeName in $stores) {
-        Write-LogMessage "" -Level Info
-        Write-LogMessage "Checking store: $storeName" -Level Info
+        Write-Log "Checking store: $storeName" -Level INFO
         
         try {
             $certs = Get-ChildItem -Path "Cert:\$location\$storeName" -ErrorAction Stop
             $expiredCerts = $certs | Where-Object { $_.NotAfter -lt (Get-Date) }
             
             if ($expiredCerts.Count -eq 0) {
-                Write-LogMessage "  No expired certificates found" -Level Info
+                Write-Log "  No expired certificates found" -Level INFO
                 continue
             }
             
-            Write-LogMessage "  Found $($expiredCerts.Count) expired certificate(s)" -Level Warning
+            Write-Log "  Found $($expiredCerts.Count) expired certificate(s)" -Level WARN
             
             foreach ($cert in $expiredCerts) {
                 try {
                     Remove-Item -Path "Cert:\$location\$storeName\$($cert.Thumbprint)" -Force -ErrorAction Stop
                     
-                    Write-LogMessage "  ✓ Removed: $($cert.Subject)" -Level Success
-                    Write-LogMessage "    Expired: $($cert.NotAfter.ToString('yyyy-MM-dd'))" -Level Info
+                    Write-Log "  [OK] Removed: $($cert.Subject)" -Level INFO
+                    Write-Log "    Expired: $($cert.NotAfter.ToString('yyyy-MM-dd'))" -Level INFO
                     
                     $script:CertificatesRemoved++
                 }
                 catch {
-                    Write-LogMessage "  ✗ Failed to remove: $($cert.Subject) - $($_.Exception.Message)" -Level Error
+                    Write-Log "  [FAIL] Failed to remove: $($cert.Subject) - $($_.Exception.Message)" -Level ERROR
                     $script:OperationsFailed++
                 }
             }
         }
         catch {
-            Write-LogMessage "  ✗ Error accessing store: $($_.Exception.Message)" -Level Error
+            Write-Log "  [FAIL] Error accessing store: $($_.Exception.Message)" -Level ERROR
         }
     }
 }
@@ -487,7 +481,7 @@ function Remove-ExpiredCertificates {
 #region Certificate Reporting
 
 function Get-CertificateInventory {
-    Write-LogMessage "Generating certificate inventory..." -Level Info
+    Write-Log "Generating certificate inventory..." -Level INFO
     
     $inventory = @()
     
@@ -522,7 +516,7 @@ function Get-CertificateInventory {
             }
         }
         catch {
-            Write-LogMessage "Error accessing store $($storeInfo.Description): $($_.Exception.Message)" -Level Warning
+            Write-Log "Error accessing store $($storeInfo.Description): $($_.Exception.Message)" -Level WARN
         }
     }
     
@@ -530,7 +524,7 @@ function Get-CertificateInventory {
 }
 
 function Save-CertificateReport {
-    Write-LogMessage "Saving certificate report..." -Level Info
+    Write-Log "Saving certificate report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "certificates-$timestamp.txt"
@@ -591,11 +585,11 @@ function Save-CertificateReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Certificate report saved to: $reportFile" -Level Success
+        Write-Log "Certificate report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -606,18 +600,13 @@ function Save-CertificateReport {
 
 function Main {
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Certificate Management" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Manage_Certificates starting ====="
+    Write-Log "Log File: $LogFile"
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
@@ -632,7 +621,7 @@ function Main {
     # Import PFX
     if ($ImportPFX) {
         if (-not $CertificatePath) {
-            Write-LogMessage "CertificatePath parameter is required for import operations" -Level Error
+            Write-Log "CertificatePath parameter is required for import operations" -Level ERROR
             exit 1
         }
         
@@ -643,7 +632,7 @@ function Main {
     # Import CER
     if ($ImportCER) {
         if (-not $CertificatePath) {
-            Write-LogMessage "CertificatePath parameter is required for import operations" -Level Error
+            Write-Log "CertificatePath parameter is required for import operations" -Level ERROR
             exit 1
         }
         
@@ -654,7 +643,7 @@ function Main {
     # Export certificate
     if ($ExportCertificate) {
         if (-not $Thumbprint -or -not $OutputPath) {
-            Write-LogMessage "Thumbprint and OutputPath parameters are required for export operations" -Level Error
+            Write-Log "Thumbprint and OutputPath parameters are required for export operations" -Level ERROR
             exit 1
         }
         
@@ -667,12 +656,10 @@ function Main {
         $issues = Get-CertificateValidationReport
         
         if ($issues.Count -gt 0) {
-            Write-LogMessage "" -Level Info
-            Write-LogMessage "Found $($issues.Count) certificate(s) with issues" -Level Warning
+            Write-Log "Found $($issues.Count) certificate(s) with issues" -Level WARN
         }
         else {
-            Write-LogMessage "" -Level Info
-            Write-LogMessage "All certificates are valid" -Level Success
+            Write-Log "All certificates are valid" -Level INFO
         }
         
         $operationPerformed = $true
@@ -686,8 +673,7 @@ function Main {
     
     # If no operation specified, show inventory
     if (-not $operationPerformed) {
-        Write-LogMessage "No operation specified, generating certificate inventory..." -Level Info
-        Write-LogMessage "" -Level Info
+        Write-Log "No operation specified, generating certificate inventory..." -Level INFO
         
         Get-CertificateValidationReport | Out-Null
     }
@@ -695,27 +681,12 @@ function Main {
     # Generate report
     Save-CertificateReport | Out-Null
     
-    # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Certificate Management Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Certificates Imported: $script:CertificatesImported" -Level Info
-    Write-LogMessage "Certificates Exported: $script:CertificatesExported" -Level Info
-    Write-LogMessage "Certificates Removed: $script:CertificatesRemoved" -Level Info
-    Write-LogMessage "Operations Failed: $script:OperationsFailed" -Level Info
-    Write-LogMessage "Duration: $([math]::Round($duration.TotalSeconds, 2)) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
     if ($script:OperationsFailed -eq 0) {
-        Write-LogMessage "Certificate management completed successfully!" -Level Success
+        Write-Log "===== Manage_Certificates complete in $([int]((Get-Date) - $scriptStartTime).TotalSeconds)s; imported=$script:CertificatesImported exported=$script:CertificatesExported removed=$script:CertificatesRemoved failed=$script:OperationsFailed ====="
         exit 0
     }
     else {
-        Write-LogMessage "Certificate management completed with $script:OperationsFailed failures" -Level Warning
+        Write-Log "===== Manage_Certificates complete in $([int]((Get-Date) - $scriptStartTime).TotalSeconds)s; imported=$script:CertificatesImported exported=$script:CertificatesExported removed=$script:CertificatesRemoved failed=$script:OperationsFailed =====" -Level WARN
         exit 1
     }
 }
@@ -725,9 +696,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

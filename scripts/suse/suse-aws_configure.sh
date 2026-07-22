@@ -58,7 +58,7 @@ log_info "Installing cloud-init..."
 
 if ! rpm -q cloud-init &>/dev/null; then
     if zypper install -y cloud-init; then
-        log_info "✓ cloud-init installed"
+        log_info "[OK] cloud-init installed"
         ((CONFIGS_APPLIED++))
     else
         log_error "Failed to install cloud-init"
@@ -89,7 +89,7 @@ datasource:
     max_wait: 120
     metadata_urls: [ 'http://169.254.169.254' ]
 EOF
-        log_info "✓ AWS datasource configured"
+        log_info "[OK] AWS datasource configured"
         ((CONFIGS_APPLIED++))
     fi
 fi
@@ -99,9 +99,9 @@ log_info "Enabling cloud-init services..."
 
 for service in cloud-init-local cloud-init cloud-config cloud-final; do
     if systemctl enable "${service}.service" 2>/dev/null; then
-        log_info "  ✓ Enabled ${service}.service"
+        log_info "  [OK] Enabled ${service}.service"
     else
-        log_warn "  ✗ Failed to enable ${service}.service"
+        log_warn "  [FAIL] Failed to enable ${service}.service"
     fi
 done
 
@@ -121,7 +121,7 @@ if ! command -v aws &>/dev/null; then
         
         if command -v aws &>/dev/null; then
             AWS_VERSION=$(aws --version)
-            log_info "✓ AWS CLI installed: $AWS_VERSION"
+            log_info "[OK] AWS CLI installed: $AWS_VERSION"
             ((CONFIGS_APPLIED++))
         else
             log_warn "AWS CLI installation may have failed"
@@ -145,7 +145,7 @@ if ! rpm -q amazon-ssm-agent &>/dev/null; then
     cd /tmp
     if curl -s -o amazon-ssm-agent.rpm "$SSM_URL"; then
         if zypper install -y ./amazon-ssm-agent.rpm; then
-            log_info "✓ SSM Agent installed"
+            log_info "[OK] SSM Agent installed"
             ((CONFIGS_APPLIED++))
         else
             log_warn "Failed to install SSM Agent"
@@ -164,7 +164,7 @@ if rpm -q amazon-ssm-agent &>/dev/null; then
     systemctl start amazon-ssm-agent &>/dev/null || log_warn "SSM Agent failed to start (normal if not on AWS)"
     
     if systemctl is-active --quiet amazon-ssm-agent; then
-        log_info "✓ SSM Agent is running"
+        log_info "[OK] SSM Agent is running"
     else
         log_info "SSM Agent service enabled (will start on AWS)"
     fi
@@ -179,7 +179,7 @@ if ! rpm -q amazon-cloudwatch-agent &>/dev/null; then
     
     if curl -s -o amazon-cloudwatch-agent.rpm "$CW_URL"; then
         if zypper install -y ./amazon-cloudwatch-agent.rpm; then
-            log_info "✓ CloudWatch Agent installed"
+            log_info "[OK] CloudWatch Agent installed"
             ((CONFIGS_APPLIED++))
         else
             log_warn "Failed to install CloudWatch Agent"
@@ -205,7 +205,7 @@ EOF
 
 sysctl --system &>/dev/null || log_warn "Failed to apply sysctl settings"
 
-log_info "✓ Network settings configured"
+log_info "[OK] Network settings configured"
 ((CONFIGS_APPLIED++))
 
 # Configure DHCP for AWS
@@ -220,7 +220,7 @@ if [[ -f "$DHCP_CONF" ]]; then
 # AWS DHCP Configuration
 supersede domain-name-servers 169.254.169.253;
 EOF
-        log_info "✓ DHCP client configured"
+        log_info "[OK] DHCP client configured"
         ((CONFIGS_APPLIED++))
     fi
 fi
@@ -236,14 +236,14 @@ EOF
 
 chmod +x /etc/profile.d/aws-imds.sh
 
-log_info "✓ IMDSv2 configuration added"
+log_info "[OK] IMDSv2 configuration added"
 ((CONFIGS_APPLIED++))
 
 # Install and configure NVMe tools for EBS
 log_info "Installing NVMe tools for EBS volumes..."
 
 if zypper install -y nvme-cli; then
-    log_info "✓ NVMe CLI installed"
+    log_info "[OK] NVMe CLI installed"
     ((CONFIGS_APPLIED++))
 else
     log_warn "Failed to install NVMe CLI"
@@ -254,7 +254,7 @@ log_info "Configuring ENA driver..."
 
 if ! lsmod | grep -q "^ena"; then
     if modprobe ena 2>/dev/null; then
-        log_info "✓ ENA driver loaded"
+        log_info "[OK] ENA driver loaded"
         echo "ena" >> /etc/modules-load.d/aws.conf
         ((CONFIGS_APPLIED++))
     else
@@ -284,7 +284,7 @@ EOF
 
 chmod +x /usr/local/bin/aws-metadata
 
-log_info "✓ AWS metadata helper created"
+log_info "[OK] AWS metadata helper created"
 ((CONFIGS_APPLIED++))
 
 # Verify installations
@@ -294,26 +294,26 @@ COMPONENTS_OK=0
 COMPONENTS_FAIL=0
 
 if rpm -q cloud-init &>/dev/null; then
-    log_info "  ✓ cloud-init installed"
+    log_info "  [OK] cloud-init installed"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ cloud-init not found"
+    log_warn "  [FAIL] cloud-init not found"
     ((COMPONENTS_FAIL++))
 fi
 
 if command -v aws &>/dev/null; then
-    log_info "  ✓ AWS CLI available"
+    log_info "  [OK] AWS CLI available"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ AWS CLI not found"
+    log_warn "  [FAIL] AWS CLI not found"
     ((COMPONENTS_FAIL++))
 fi
 
 if rpm -q amazon-ssm-agent &>/dev/null; then
-    log_info "  ✓ SSM Agent installed"
+    log_info "  [OK] SSM Agent installed"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ SSM Agent not found"
+    log_warn "  [FAIL] SSM Agent not found"
     ((COMPONENTS_FAIL++))
 fi
 

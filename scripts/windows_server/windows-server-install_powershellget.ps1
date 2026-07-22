@@ -22,28 +22,23 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-# Logging function
+$script:Component = 'PSGet'
 function Write-Log {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Message,
-        
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
-    )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    Write-Host "[$timestamp] [$prefix] [PSGet] $Message"
+    param([string]$Message, [ValidateSet('INFO', 'WARN', 'ERROR')][string]$Level = 'INFO')
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [PSGet] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 # Main script execution
 try {
-    Write-Log "Starting PowerShellGet installation..."
+    $startTime = Get-Date
+    Write-Log "===== install_powershellget starting ====="
     
     # Set execution policy
     Write-Log "Setting execution policy to RemoteSigned..."
@@ -72,10 +67,12 @@ try {
         throw "PowerShellGet installation verification failed"
     }
     
-    Write-Log "PowerShellGet installation completed successfully"
-    
+    Write-Log "===== install_powershellget complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } catch {
-    Write-Log "Error: $($_.Exception.Message)" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

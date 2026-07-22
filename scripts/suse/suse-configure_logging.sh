@@ -80,12 +80,12 @@ if [[ -f "$JOURNALD_CONF" ]]; then
     sed -i 's/^#SystemMaxFileSize=.*/SystemMaxFileSize=50M/' "$JOURNALD_CONF"
     sed -i 's/^#MaxRetentionSec=.*/MaxRetentionSec=1month/' "$JOURNALD_CONF"
     
-    log_info "✓ journald configured"
+    log_info "[OK] journald configured"
     ((CONFIGS_APPLIED++))
     
     # Restart journald
     systemctl restart systemd-journald
-    log_info "✓ journald restarted"
+    log_info "[OK] journald restarted"
 fi
 
 # Configure rsyslog for remote logging
@@ -95,7 +95,7 @@ if [[ -n "$REMOTE_LOG_HOST" ]]; then
     # Install rsyslog if not present
     if ! rpm -q rsyslog &>/dev/null; then
         if zypper install -y rsyslog; then
-            log_info "✓ rsyslog installed"
+            log_info "[OK] rsyslog installed"
         else
             log_error "Failed to install rsyslog"
             exit 1
@@ -111,7 +111,7 @@ EOF
     systemctl enable rsyslog
     systemctl restart rsyslog
     
-    log_info "✓ rsyslog configured for remote logging"
+    log_info "[OK] rsyslog configured for remote logging"
     ((CONFIGS_APPLIED++))
 fi
 
@@ -133,7 +133,7 @@ cat > /etc/logrotate.d/syslog <<'EOF'
 }
 EOF
 
-log_info "✓ logrotate configured"
+log_info "[OK] logrotate configured"
 ((CONFIGS_APPLIED++))
 
 # Summary statistics

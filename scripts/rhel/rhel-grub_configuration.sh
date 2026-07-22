@@ -139,9 +139,9 @@ log_info "Verifying GRUB configuration..."
 NEW_TIMEOUT=$(grep -oP '^GRUB_TIMEOUT=\K\d+' "$GRUB_CONFIG")
 
 if [[ "$NEW_TIMEOUT" == "$GRUB_TIMEOUT" ]]; then
-    log_info "✓ GRUB timeout verified: ${NEW_TIMEOUT}s"
+    log_info "[OK] GRUB timeout verified: ${NEW_TIMEOUT}s"
 else
-    log_warn "✗ GRUB timeout mismatch: expected $GRUB_TIMEOUT, got $NEW_TIMEOUT"
+    log_warn "[FAIL] GRUB timeout mismatch: expected $GRUB_TIMEOUT, got $NEW_TIMEOUT"
 fi
 
 # Summary statistics

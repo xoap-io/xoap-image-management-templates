@@ -71,9 +71,9 @@ fi
 log_info "Verifying installation..."
 for pkg in "${packages[@]}"; do
     if dpkg -l | grep -q "^ii  $pkg"; then
-        log_info "  ✓ $pkg installed"
+        log_info "  [OK] $pkg installed"
     else
-        log_warn "  ✗ $pkg not found"
+        log_warn "  [FAIL] $pkg not found"
     fi
 done
 

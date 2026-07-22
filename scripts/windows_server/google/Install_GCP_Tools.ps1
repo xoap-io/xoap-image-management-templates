@@ -33,7 +33,7 @@
     Installs only Cloud SDK and Operations Agent
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -48,9 +48,13 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'gcp-tools-install'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [GCPTools] Transcript unavailable: $($_.Exception.Message)" }
 $TempDir = Join-Path $env:TEMP "gcp-install-$timestamp"
 
 $script:InstallationsCompleted = 0
@@ -60,23 +64,18 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [GCPTools] $Message"
+    $logMessage = "[$timestamp] [$Level] [GCPTools] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -90,6 +89,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Install_GCP_Tools starting ====="
     
     Write-Log "========================================================="
     Write-Log "Google Cloud Tools and Agents Installation"
@@ -111,7 +111,7 @@ try {
     try {
         $metadata = Invoke-RestMethod -Uri 'http://metadata.google.internal/computeMetadata/v1/instance/id' `
             -Headers @{'Metadata-Flavor'='Google'} -TimeoutSec 2 -ErrorAction Stop
-        Write-Log "✓ Running on GCE instance: $metadata"
+        Write-Log "[OK] Running on GCE instance: $metadata"
         
         $zone = Invoke-RestMethod -Uri 'http://metadata.google.internal/computeMetadata/v1/instance/zone' `
             -Headers @{'Metadata-Flavor'='Google'} -TimeoutSec 2 -ErrorAction Stop
@@ -123,7 +123,7 @@ try {
         $isGCE = $true
     }
     catch {
-        Write-Log "Warning: Not running on GCE instance" -Level Warning
+        Write-Log "Warning: Not running on GCE instance" -Level WARN
     }
     
     # Install Google Cloud SDK
@@ -150,7 +150,7 @@ try {
                     -Wait -PassThru -NoNewWindow
                 
                 if ($process.ExitCode -eq 0) {
-                    Write-Log "✓ Google Cloud SDK installed successfully"
+                    Write-Log "[OK] Google Cloud SDK installed successfully"
                     $script:InstallationsCompleted++
                 }
                 else {
@@ -158,7 +158,7 @@ try {
                 }
             }
             catch {
-                Write-Log "SDK installation failed: $($_.Exception.Message)" -Level Error
+                Write-Log "SDK installation failed: $($_.Exception.Message)" -Level ERROR
                 $script:InstallationsFailed++
             }
         }
@@ -189,7 +189,7 @@ try {
                     -Wait -PassThru -NoNewWindow
                 
                 if ($process.ExitCode -eq 0) {
-                    Write-Log "✓ Operations Agent installed successfully"
+                    Write-Log "[OK] Operations Agent installed successfully"
                     $script:InstallationsCompleted++
                 }
                 else {
@@ -197,7 +197,7 @@ try {
                 }
             }
             catch {
-                Write-Log "Operations Agent installation failed: $($_.Exception.Message)" -Level Error
+                Write-Log "Operations Agent installation failed: $($_.Exception.Message)" -Level ERROR
                 $script:InstallationsFailed++
             }
         }
@@ -217,12 +217,12 @@ try {
                 Write-Log "Installing GoogleCloud PowerShell module..."
                 Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue | Out-Null
                 Install-Module -Name GoogleCloud -Force -AllowClobber -Scope AllUsers
-                Write-Log "✓ Google Cloud PowerShell installed successfully"
+                Write-Log "[OK] Google Cloud PowerShell installed successfully"
                 $script:InstallationsCompleted++
             }
         }
         catch {
-            Write-Log "PowerShell module installation failed: $($_.Exception.Message)" -Level Error
+            Write-Log "PowerShell module installation failed: $($_.Exception.Message)" -Level ERROR
             $script:InstallationsFailed++
         }
     }
@@ -234,21 +234,21 @@ try {
     if ($InstallSDK) {
         $gcloudPath = "${env:ProgramFiles(x86)}\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
         if (Test-Path $gcloudPath) {
-            Write-Log "✓ Google Cloud SDK: Installed"
+            Write-Log "[OK] Google Cloud SDK: Installed"
         }
     }
     
     if ($InstallOpsAgent) {
         $opsService = Get-Service -Name 'google-cloud-ops-agent' -ErrorAction SilentlyContinue
         if ($opsService) {
-            Write-Log "✓ Operations Agent: $($opsService.Status)"
+            Write-Log "[OK] Operations Agent: $($opsService.Status)"
         }
     }
     
     if ($InstallPowerShell) {
         $gcpModule = Get-Module -ListAvailable -Name 'GoogleCloud' -ErrorAction SilentlyContinue
         if ($gcpModule) {
-            Write-Log "✓ Google Cloud PowerShell: $($gcpModule.Version)"
+            Write-Log "[OK] Google Cloud PowerShell: $($gcpModule.Version)"
         }
     }
     
@@ -270,7 +270,11 @@ try {
     Write-Log "Execution time: $([math]::Round($duration, 2))s"
     Write-Log "========================================================="
     
+    Write-Log "===== Install_GCP_Tools complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Installation failed: $_" -Level Error
+    Write-Log "Installation failed: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

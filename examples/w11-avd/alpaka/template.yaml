@@ -1,0 +1,161 @@
+# Windows 11 multi-session AVD session-host image (alpaka v6.0.0).
+#
+# TARGET: azure-arm. AVD images live in Azure and must land in an Azure Compute Gallery,
+# so this set builds a temporary VM from the Windows 11 marketplace image, provisions it,
+# generalizes it, captures a managed image and publishes a NEW Compute Gallery image version.
+#
+# Each action's script path (scripts/NAME.ps1) is resolved by alpaka INSIDE this template's
+# directory. Vendor them first with:  pwsh examples/sync-demo-scripts.ps1 -Set w11-avd
+# (copies each referenced script from the repo scripts/ tree into ./alpaka/scripts/).
+#
+# Build-time environment variables required:
+#   AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID  (cloud creds)
+#   FSLOGIX_VHD_LOCATIONS  (UNC path to the FSLogix profile share; may be left empty and set post-deploy)
+#
+# CAVEAT — Trusted Launch / TPM: the azure-arm plugin does NOT set a VM SecurityProfile, so we
+# build a STANDARD Gen2 VM (win11-24h2-ent) rather than relying on `security_type: TrustedLaunch`.
+# If the SKU mandates Trusted Launch, VM creation is rejected by Azure — that is a plugin gap to
+# confirm, not a template error.
+#
+# Prerequisite: accept the Windows 11 marketplace terms once for the subscription.
+version: "2.0"
+description: "Windows 11 24H2 multi-session AVD session host — azure-arm managed image + Compute Gallery version"
+
+variables:
+  image_name: "w11-avd"
+  location: "westeurope"
+  vm_size: "Standard_D4s_v5"
+  images_rg: "alpaka-images-rg"
+  gallery_name: "alpakaImageGallery"
+  image_version: "1.0.0"
+  fslogix_vhd_locations: ""   # e.g. \\storage.file.core.windows.net\profiles (or set FSLOGIX_VHD_LOCATIONS env)
+  winrm_username: "alpakaadmin"
+  winrm_password: "Alpaka!Build2026#W11"
+
+sensitive_variables:
+  - winrm_password
+
+target_platforms:
+  - name: "{{ image_name }}"
+    type: "azure-arm"
+    client_id: "{{env `AZURE_CLIENT_ID`}}"
+    client_secret: "{{env `AZURE_CLIENT_SECRET`}}"
+    tenant_id: "{{env `AZURE_TENANT_ID`}}"
+    subscription_id: "{{env `AZURE_SUBSCRIPTION_ID`}}"
+    location: "{{ location }}"
+
+    # --- source: Windows 11 24H2 Enterprise (Gen2, standard security) ---
+    image_publisher: "MicrosoftWindowsDesktop"
+    image_offer: "Windows-11"
+    image_sku: "win11-24h2-ent"
+    image_version: "latest"
+
+    vm_size: "{{ vm_size }}"
+    os_type: "Windows"
+    os_disk_size_gb: "128"
+    disk_caching_type: "ReadWrite"
+
+    # temp RG auto-created + deleted; managed image kept in images_rg
+    managed_image_name: "{{ image_name }}-golden"
+    managed_image_resource_group_name: "{{ images_rg }}"
+    managed_image_storage_account_type: "Standard_LRS"
+
+    # destination: NEW versioned image in the Azure Compute Gallery
+    target_gallery_name: "{{ gallery_name }}"
+    target_resource_group: "{{ images_rg }}"
+    target_image_name: "windows-11-avd"
+    target_image_version: "{{ image_version }}"
+    replication_regions: 1
+    target_regions:
+      - name: "westeurope"
+        replica_count: 1
+
+    azure_tags:
+      Environment: "demo"
+      OS: "Windows 11 24H2 multi-session"
+      Workload: "AVD"
+      ManagedBy: "Alpaka"
+
+connection:
+  type: "winrm"
+  username: "{{ winrm_username }}"
+  password: "{{ winrm_password }}"
+  use_ssl: true
+  insecure: true
+  timeout: "30m"
+
+# Each action sets its own `timeout` — the orchestrator enforces the wall-clock bound,
+# the scripts do not (see docs/SCRIPT_CONTRACT.md section 2a).
+actions:
+  - type: windows-update
+    name: patch
+    timeout: "60m"
+
+  - type: powershell
+    name: install-fslogix
+    script: "scripts/windows11-Install_FSLogix.ps1"
+    timeout: "20m"
+    environment:
+      FSLOGIX_VHD_LOCATIONS: "{{ fslogix_vhd_locations }}"
+
+  - type: powershell
+    name: install-teams-avd
+    script: "scripts/windows11-Install_Teams_AVD.ps1"
+    timeout: "20m"
+
+  - type: powershell
+    name: install-onedrive-permachine
+    script: "scripts/windows11-Install_OneDrive_PerMachine.ps1"
+    timeout: "15m"
+
+  - type: powershell
+    name: timezone-redirection
+    script: "scripts/windows11-Configure_Timezone_Redirection.ps1"
+    timeout: "5m"
+
+  - type: powershell
+    name: avd-optimizations
+    script: "scripts/windows11-Configure_AVD_Optimizations.ps1"
+    timeout: "15m"
+
+  # App installs use the native typed action instead of per-app scripts.
+  - type: winget
+    name: browsers
+    timeout: "30m"
+    packages:
+      - Microsoft.Edge
+
+  # --- staged Pester validation (aborts the build before capture on any failure) ---
+  - type: file
+    name: stage-tests
+    source: "../tests/W11-AVD.Tests.ps1"
+    destination: "C:/Alpaka/Tests/W11-AVD.Tests.ps1"
+    direction: "upload"
+    timeout: "5m"
+
+  - type: powershell
+    name: pester-validate
+    timeout: "20m"
+    inline:
+      - "Set-ExecutionPolicy Bypass -Scope Process -Force; [Net.ServicePointManager]::SecurityProtocol=3072; Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null; if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'5.0.0' })) { Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope AllUsers }; Import-Module Pester -MinimumVersion 5.0.0 -Force; $cfg = New-PesterConfiguration; $cfg.Run.Path='C:\\Alpaka\\Tests'; $cfg.Run.PassThru=$true; $cfg.Output.Verbosity='Detailed'; $r=Invoke-Pester -Configuration $cfg; if ($r.FailedCount -gt 0) { throw (\"Pester: {0}/{1} tests failed\" -f $r.FailedCount,$r.TotalCount) }"
+
+  - type: powershell
+    name: cleanup
+    script: "scripts/windows11-Cleanup_Temporary_Files.ps1"
+    timeout: "20m"
+
+  - type: powershell
+    name: sysprep-generalize
+    script: "scripts/windows-server-Invoke_Sysprep.ps1"
+    timeout: "30m"
+    environment:
+      SYSPREP_VMMODE: "1"
+      SYSPREP_MODE: "OOBE"
+      SYSPREP_SHUTDOWN: "Shutdown"
+    valid_exit_codes: [0, 3010]
+
+post_build:
+  - name: "manifest"
+    type: "manifest"
+    output: "w11-avd-manifest.json"
+    strip_path: true

@@ -1,2 +1,22 @@
-# Auto detect text files and perform LF normalization
+# Auto detect text files and perform LF normalization by default
 * text=auto
+
+# Windows scripts and answer files must retain CRLF on checkout so they run
+# correctly on Windows build hosts and inside autounattend/Setup passes.
+*.ps1     text eol=crlf
+*.psm1    text eol=crlf
+*.psd1    text eol=crlf
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+autounattend/**/*.xml text eol=crlf
+
+# Shell scripts must stay LF regardless of host platform.
+*.sh      text eol=lf
+
+# Binary assets (virtio drivers, tools) must never be line-ending normalized.
+*.exe     binary
+*.dll     binary
+*.sys     binary
+*.cat     binary
+*.inf     binary
+*.iso     binary

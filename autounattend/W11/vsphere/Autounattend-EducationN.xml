@@ -2,7 +2,7 @@
 <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <!--
         Windows 11 24H2 EducationN - vsphere
-        Edition: Windows 10 Education N
+        Edition: Windows 11 Education N
         Hypervisor: vsphere
     -->
     <settings pass="windowsPE">
@@ -56,7 +56,7 @@
                     <InstallFrom>
                         <MetaData wcm:action="add">
                             <Key>/IMAGE/NAME</Key>
-                            <Value>Windows 10 Education N</Value>
+                            <Value>Windows 11 Education N</Value>
                         </MetaData>
                     </InstallFrom>
                     <InstallTo>
@@ -65,6 +65,33 @@
                     </InstallTo>
                 </OSImage>
             </ImageInstall>
+            <RunSynchronous>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>1</Order>
+                    <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+                    <Description>Bypass Windows 11 TPM 2.0 requirement</Description>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>2</Order>
+                    <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+                    <Description>Bypass Windows 11 Secure Boot requirement</Description>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>3</Order>
+                    <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+                    <Description>Bypass Windows 11 minimum RAM requirement</Description>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>4</Order>
+                    <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path>
+                    <Description>Bypass Windows 11 minimum storage requirement</Description>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>5</Order>
+                    <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path>
+                    <Description>Bypass Windows 11 supported CPU requirement</Description>
+                </RunSynchronousCommand>
+            </RunSynchronous>
             <UserData>
                 <ProductKey>
                     <WillShowUI>OnError</WillShowUI>

@@ -30,44 +30,41 @@ $LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
 
 $script:ProtocolsDisabled = 0
 
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0, Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [NetProtocol] $Message"
-    Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
+    Write-Host "[$timestamp] [$Level] [NetProtocol] $Message"
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
     exit 1
 }
 
 try {
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
     }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
+
     $startTime = Get-Date
-    
-    Write-Log "==================================================="
-    Write-Log "Disable Unused Network Protocols Script"
-    Write-Log "==================================================="
-    
+
+    Write-Log "===== Disable_Unused_Protocols starting ====="
+
     # Disable NetBIOS over TCP/IP
     Write-Log "Disabling NetBIOS over TCP/IP..."
     try {
@@ -76,10 +73,10 @@ try {
         foreach ($adapter in $adapters) {
             $result = $adapter.SetTcpipNetbios(2) # 0=Default, 1=Enable, 2=Disable
             if ($result.ReturnValue -eq 0) {
-                Write-Log "  ✓ Disabled NetBIOS on: $($adapter.Description)"
+                Write-Log "  [OK] Disabled NetBIOS on: $($adapter.Description)"
                 $script:ProtocolsDisabled++
             } else {
-                Write-Log "  Failed to disable NetBIOS on: $($adapter.Description)" -Level Warning
+                Write-Log "  Failed to disable NetBIOS on: $($adapter.Description)" -Level WARN
             }
         }
         
@@ -87,10 +84,10 @@ try {
         $regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters'
         Set-ItemProperty -Path $regPath -Name 'NodeType' -Value 2 -Type DWord -ErrorAction SilentlyContinue
         
-        Write-Log "✓ NetBIOS over TCP/IP disabled"
+        Write-Log "[OK] NetBIOS over TCP/IP disabled"
         
     } catch {
-        Write-Log "Error disabling NetBIOS: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling NetBIOS: $($_.Exception.Message)" -Level WARN
     }
     
     # Disable LLMNR (Link-Local Multicast Name Resolution)
@@ -103,11 +100,11 @@ try {
         }
         
         Set-ItemProperty -Path $regPath -Name 'EnableMulticast' -Value 0 -Type DWord
-        Write-Log "✓ LLMNR disabled"
+        Write-Log "[OK] LLMNR disabled"
         $script:ProtocolsDisabled++
         
     } catch {
-        Write-Log "Error disabling LLMNR: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling LLMNR: $($_.Exception.Message)" -Level WARN
     }
     
     # Disable WPAD (Web Proxy Auto-Discovery)
@@ -131,11 +128,11 @@ try {
         $regPath = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings'
         Set-ItemProperty -Path $regPath -Name 'AutoDetect' -Value 0 -Type DWord -ErrorAction SilentlyContinue
         
-        Write-Log "✓ WPAD disabled"
+        Write-Log "[OK] WPAD disabled"
         $script:ProtocolsDisabled++
         
     } catch {
-        Write-Log "Error disabling WPAD: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling WPAD: $($_.Exception.Message)" -Level WARN
     }
     
     # Disable IPv6 (optional - only if not needed)
@@ -150,11 +147,11 @@ try {
         
         # 0xFF = Disable all IPv6, 0x20 = Prefer IPv4 over IPv6
         Set-ItemProperty -Path $regPath -Name 'DisabledComponents' -Value 0x20 -Type DWord
-        Write-Log "✓ Configured to prefer IPv4 over IPv6"
+        Write-Log "[OK] Configured to prefer IPv4 over IPv6"
         $script:ProtocolsDisabled++
         
     } catch {
-        Write-Log "Error configuring IPv6: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring IPv6: $($_.Exception.Message)" -Level WARN
     }
     
     # Disable mDNS (Multicast DNS)
@@ -167,11 +164,11 @@ try {
         }
         
         Set-ItemProperty -Path $regPath -Name 'EnableMDNS' -Value 0 -Type DWord
-        Write-Log "✓ mDNS disabled"
+        Write-Log "[OK] mDNS disabled"
         $script:ProtocolsDisabled++
         
     } catch {
-        Write-Log "Error disabling mDNS: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling mDNS: $($_.Exception.Message)" -Level WARN
     }
     
     # Disable Windows Connect Now
@@ -185,13 +182,13 @@ try {
             if ($svc) {
                 Stop-Service -Name $svcName -Force -ErrorAction SilentlyContinue
                 Set-Service -Name $svcName -StartupType Disabled
-                Write-Log "  ✓ Disabled service: $svcName"
+                Write-Log "  [OK] Disabled service: $svcName"
                 $script:ProtocolsDisabled++
             }
         }
         
     } catch {
-        Write-Log "Error disabling Windows Connect Now: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling Windows Connect Now: $($_.Exception.Message)" -Level WARN
     }
     
     # Disable SSDP Discovery (UPnP)
@@ -202,12 +199,12 @@ try {
         if ($svc) {
             Stop-Service -Name 'SSDPSRV' -Force -ErrorAction SilentlyContinue
             Set-Service -Name 'SSDPSRV' -StartupType Disabled
-            Write-Log "✓ SSDP Discovery disabled"
+            Write-Log "[OK] SSDP Discovery disabled"
             $script:ProtocolsDisabled++
         }
         
     } catch {
-        Write-Log "Error disabling SSDP: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling SSDP: $($_.Exception.Message)" -Level WARN
     }
     
     # Disable Remote Registry
@@ -218,12 +215,12 @@ try {
         if ($svc) {
             Stop-Service -Name 'RemoteRegistry' -Force -ErrorAction SilentlyContinue
             Set-Service -Name 'RemoteRegistry' -StartupType Disabled
-            Write-Log "✓ Remote Registry disabled"
+            Write-Log "[OK] Remote Registry disabled"
             $script:ProtocolsDisabled++
         }
         
     } catch {
-        Write-Log "Error disabling Remote Registry: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling Remote Registry: $($_.Exception.Message)" -Level WARN
     }
     
     # Disable LMHOSTS lookup
@@ -232,11 +229,11 @@ try {
     try {
         $regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters'
         Set-ItemProperty -Path $regPath -Name 'EnableLMHOSTS' -Value 0 -Type DWord
-        Write-Log "✓ LMHOSTS lookup disabled"
+        Write-Log "[OK] LMHOSTS lookup disabled"
         $script:ProtocolsDisabled++
         
     } catch {
-        Write-Log "Error disabling LMHOSTS: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error disabling LMHOSTS: $($_.Exception.Message)" -Level WARN
     }
     
     # Harden DNS configuration
@@ -251,11 +248,11 @@ try {
         # Set DNS query timeout
         Set-ItemProperty -Path $regPath -Name 'QueryTimeout' -Value 2 -Type DWord -ErrorAction SilentlyContinue
         
-        Write-Log "✓ DNS configuration hardened"
+        Write-Log "[OK] DNS configuration hardened"
         $script:ProtocolsDisabled++
         
     } catch {
-        Write-Log "Error hardening DNS: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error hardening DNS: $($_.Exception.Message)" -Level WARN
     }
     
     # Flush DNS cache
@@ -263,10 +260,10 @@ try {
     Write-Log "Flushing DNS cache..."
     try {
         Clear-DnsClientCache -ErrorAction Stop
-        Write-Log "✓ DNS cache flushed"
+        Write-Log "[OK] DNS cache flushed"
         
     } catch {
-        Write-Log "Error flushing DNS cache: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error flushing DNS cache: $($_.Exception.Message)" -Level WARN
     }
     
     # Flush NetBIOS cache
@@ -274,21 +271,15 @@ try {
     try {
         nbtstat -R | Out-Null
         nbtstat -RR | Out-Null
-        Write-Log "✓ NetBIOS cache flushed"
+        Write-Log "[OK] NetBIOS cache flushed"
         
     } catch {
-        Write-Log "Error flushing NetBIOS cache: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error flushing NetBIOS cache: $($_.Exception.Message)" -Level WARN
     }
     
     # Summary
-    $endTime = Get-Date
-    $duration = ($endTime - $startTime).TotalSeconds
-    
-    Write-Log ""
-    Write-Log "==================================================="
-    Write-Log "Protocol Disable Summary"
-    Write-Log "==================================================="
-    Write-Log "Protocols/Services disabled: $script:ProtocolsDisabled"
+    $duration = ((Get-Date) - $startTime).TotalSeconds
+
     Write-Log "NetBIOS over TCP/IP: Disabled"
     Write-Log "LLMNR: Disabled"
     Write-Log "WPAD: Disabled"
@@ -296,18 +287,14 @@ try {
     Write-Log "IPv6: Prefer IPv4"
     Write-Log "SSDP/UPnP: Disabled"
     Write-Log "Remote Registry: Disabled"
-    Write-Log "Execution time: $([math]::Round($duration, 2))s"
-    Write-Log "==================================================="
-    Write-Log "Protocol hardening completed!"
-    Write-Log ""
-    Write-Log "IMPORTANT:"
-    Write-Log "  - A system restart is recommended for all changes to take effect"
-    Write-Log "  - Test network connectivity after restart"
-    Write-Log "  - These changes improve security by reducing attack surface"
-    
+    Write-Log "IMPORTANT: A system restart is recommended for all changes to take effect" -Level WARN
+    Write-Log "===== Disable_Unused_Protocols complete in $([int]$duration)s; disabled=$($script:ProtocolsDisabled) ====="
+
 } catch {
-    Write-Log "Script execution failed: $_" -Level Error
+    Write-Log "Script execution failed: $_" -Level ERROR
     exit 1
 } finally {
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
 }
+
+exit 0

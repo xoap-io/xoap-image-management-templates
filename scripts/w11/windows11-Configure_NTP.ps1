@@ -65,7 +65,13 @@ $ProgressPreference = 'SilentlyContinue'
 $LogDir = 'C:\xoap-logs'
 $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [NTP] Transcript unavailable: $($_.Exception.Message)" }
 
 # W32Time registry paths
 $W32TimeConfig = 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Config'
@@ -88,15 +94,14 @@ function Write-LogMessage {
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    # Ensure log directory exists
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+    $levelTag = switch ($Level) {
+        'Warning' { 'WARN' }
+        'Error'   { 'ERROR' }
+        'Success' { 'INFO' }
+        default   { 'INFO' }
     }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
+    $logMessage = "[$timestamp] [$levelTag] [NTP] $Message"
+
     switch ($Level) {
         'Error'   { Write-Host $logMessage -ForegroundColor Red }
         'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
@@ -528,6 +533,8 @@ function Main {
     Write-LogMessage "Current System Time: $($currentTime.ToString('yyyy-MM-dd HH:mm:ss'))" -Level Info
     Write-LogMessage "Current UTC Time: $($currentTime.ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss'))" -Level Info
     
+    Write-LogMessage "===== Configure_NTP complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+
     if ($script:ConfigurationsFailed -eq 0) {
         Write-LogMessage "NTP configuration completed successfully!" -Level Success
         Write-LogMessage "Monitor time sync with: w32tm /query /status" -Level Info
@@ -541,12 +548,17 @@ function Main {
 
 # Execute main function
 try {
+    $startTime = Get-Date
+    Write-LogMessage "===== Configure_NTP starting ====="
     Main
 }
 catch {
     Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
     Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

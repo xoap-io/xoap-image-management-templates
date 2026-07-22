@@ -74,11 +74,11 @@ log_info "Disabling swap..."
 
 if [[ $(swapon --show | wc -l) -gt 0 ]]; then
     swapoff -a
-    log_info "✓ Swap disabled"
+    log_info "[OK] Swap disabled"
     ((CONFIGS_APPLIED++))
     
     sed -i '/swap/s/^/#/' /etc/fstab
-    log_info "✓ Swap entries commented in fstab"
+    log_info "[OK] Swap entries commented in fstab"
 else
     log_info "Swap is already disabled"
 fi
@@ -97,7 +97,7 @@ EOF
 modprobe overlay
 modprobe br_netfilter
 
-log_info "✓ Kernel modules loaded"
+log_info "[OK] Kernel modules loaded"
 ((CONFIGS_APPLIED++))
 
 # Configure sysctl parameters
@@ -114,7 +114,7 @@ EOF
 
 sysctl --system &>/dev/null || log_warn "Failed to reload sysctl"
 
-log_info "✓ Kernel parameters configured"
+log_info "[OK] Kernel parameters configured"
 ((CONFIGS_APPLIED++))
 
 # Verify kernel parameters
@@ -129,7 +129,7 @@ log_info "Disabling UFW firewall..."
 if systemctl is-active --quiet ufw; then
     systemctl stop ufw
     systemctl disable ufw
-    log_info "✓ UFW disabled"
+    log_info "[OK] UFW disabled"
     ((CONFIGS_APPLIED++))
 else
     log_info "UFW already disabled"
@@ -142,7 +142,7 @@ if [[ "$CONTAINER_RUNTIME" == "containerd" ]]; then
     log_info "Installing containerd..."
     
     if DEBIAN_FRONTEND=noninteractive apt-get install -y containerd; then
-        log_info "✓ containerd installed"
+        log_info "[OK] containerd installed"
         
         mkdir -p /etc/containerd
         containerd config default > /etc/containerd/config.toml
@@ -153,7 +153,7 @@ if [[ "$CONTAINER_RUNTIME" == "containerd" ]]; then
         systemctl restart containerd
         
         if systemctl is-active --quiet containerd; then
-            log_info "✓ containerd is running"
+            log_info "[OK] containerd is running"
             ((CONFIGS_APPLIED++))
         else
             log_error "Failed to start containerd"
@@ -178,7 +178,7 @@ echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.
 
 apt-get update -qq
 
-log_info "✓ Kubernetes repository added"
+log_info "[OK] Kubernetes repository added"
 ((CONFIGS_APPLIED++))
 
 # Install Kubernetes packages
@@ -186,7 +186,7 @@ log_info "Installing Kubernetes packages..."
 
 if DEBIAN_FRONTEND=noninteractive apt-get install -y kubelet kubeadm kubectl; then
     apt-mark hold kubelet kubeadm kubectl
-    log_info "✓ Kubernetes packages installed and held"
+    log_info "[OK] Kubernetes packages installed and held"
     ((CONFIGS_APPLIED++))
 else
     log_error "Failed to install Kubernetes packages"
@@ -196,7 +196,7 @@ fi
 # Enable kubelet
 systemctl enable kubelet
 
-log_info "✓ kubelet enabled"
+log_info "[OK] kubelet enabled"
 
 # Display installed versions
 log_info "Installed Kubernetes versions:"

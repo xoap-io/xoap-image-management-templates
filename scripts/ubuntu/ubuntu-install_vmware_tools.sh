@@ -69,7 +69,7 @@ if [[ -n "${DISPLAY:-}" ]] || dpkg -l | grep -q "ubuntu-desktop\|xubuntu-desktop
 fi
 
 if DEBIAN_FRONTEND=noninteractive apt-get install -y $PACKAGES; then
-    log_info "✓ open-vm-tools installed successfully"
+    log_info "[OK] open-vm-tools installed successfully"
     ((PACKAGES_INSTALLED++))
 else
     log_error "Failed to install open-vm-tools"
@@ -92,9 +92,9 @@ systemctl start open-vm-tools
 sleep 2
 
 if systemctl is-active --quiet open-vm-tools; then
-    log_info "✓ open-vm-tools service is running"
+    log_info "[OK] open-vm-tools service is running"
 else
-    log_error "✗ open-vm-tools service failed to start"
+    log_error "[FAIL] open-vm-tools service failed to start"
     systemctl status open-vm-tools --no-pager
     exit 1
 fi
@@ -106,15 +106,15 @@ if systemctl list-unit-files | grep -q "vgauth.service"; then
     systemctl start vgauth
     
     if systemctl is-active --quiet vgauth; then
-        log_info "✓ vgauth service is running"
+        log_info "[OK] vgauth service is running"
     else
-        log_warn "✗ vgauth service failed to start"
+        log_warn "[FAIL] vgauth service failed to start"
     fi
 fi
 
 # Check for vmhgfs-fuse (shared folders)
 if command -v vmhgfs-fuse &>/dev/null; then
-    log_info "✓ Shared folders support available"
+    log_info "[OK] Shared folders support available"
     
     # Create mount point
     mkdir -p /mnt/hgfs
@@ -122,7 +122,7 @@ if command -v vmhgfs-fuse &>/dev/null; then
     # Add to fstab if not present
     if ! grep -q "vmhgfs-fuse" /etc/fstab; then
         echo ".host:/ /mnt/hgfs fuse.vmhgfs-fuse allow_other,defaults 0 0" >> /etc/fstab
-        log_info "✓ Shared folders configured in /etc/fstab"
+        log_info "[OK] Shared folders configured in /etc/fstab"
         ((PACKAGES_INSTALLED++))
     fi
 else
@@ -154,7 +154,7 @@ if vmware-toolbox-cmd timesync status &>/dev/null; then
     if [[ "$TIMESYNC_STATUS" == *"Disabled"* ]]; then
         log_info "  Enabling time synchronization..."
         vmware-toolbox-cmd timesync enable
-        log_info "  ✓ Time sync enabled"
+        log_info "  [OK] Time sync enabled"
     fi
 else
     log_info "  Time sync control not available"
@@ -177,7 +177,7 @@ VMWARE_MODULES=("vmw_balloon" "vmw_vmci" "vmw_vsock_vmci_transport" "vmwgfx" "vm
 
 for module in "${VMWARE_MODULES[@]}"; do
     if lsmod | grep -q "^$module"; then
-        log_info "  ✓ $module loaded"
+        log_info "  [OK] $module loaded"
     else
         log_info "  - $module not loaded"
     fi

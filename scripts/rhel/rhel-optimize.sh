@@ -80,7 +80,7 @@ if ! command -v tuned-adm &>/dev/null; then
     log_info "Installing tuned package..."
     
     if $PKG_MGR install -y tuned; then
-        log_info "✓ tuned installed successfully"
+        log_info "[OK] tuned installed successfully"
         ((OPTIMIZATIONS_APPLIED++))
     else
         log_error "Failed to install tuned"
@@ -97,7 +97,7 @@ systemctl enable tuned
 systemctl start tuned
 
 if systemctl is-active --quiet tuned; then
-    log_info "✓ tuned service is running"
+    log_info "[OK] tuned service is running"
 else
     log_error "Failed to start tuned service"
     exit 1
@@ -116,8 +116,8 @@ if [[ "$DETECT_PROFILE" == "true" ]]; then
             log_info "Detected virtual machine - using virtual-guest profile"
             ;;
         none)
-            # Physical machine - check if it's a server
-            if [[ -d /sys/class/net/eth0 ]] || [[ -d /sys/class/net/ens* ]]; then
+            # Physical machine - check if it's a server (globs need a loop, not -d)
+            if [[ -d /sys/class/net/eth0 ]] || compgen -G "/sys/class/net/ens*" > /dev/null; then
                 TUNED_PROFILE="throughput-performance"
                 log_info "Detected physical server - using throughput-performance profile"
             else
@@ -149,7 +149,7 @@ else
     log_info "Applying tuned profile: $TUNED_PROFILE"
     
     if tuned-adm profile "$TUNED_PROFILE"; then
-        log_info "✓ Profile applied successfully"
+        log_info "[OK] Profile applied successfully"
         ((OPTIMIZATIONS_APPLIED++))
     else
         log_error "Failed to apply profile"
@@ -163,7 +163,7 @@ sleep 2
 NEW_PROFILE=$(tuned-adm active 2>/dev/null | grep "Current active profile:" | awk '{print $NF}' || echo "none")
 
 if [[ "$NEW_PROFILE" == "$TUNED_PROFILE" ]]; then
-    log_info "✓ Profile verification successful"
+    log_info "[OK] Profile verification successful"
 else
     log_warn "Profile verification failed - expected '$TUNED_PROFILE', got '$NEW_PROFILE'"
 fi
@@ -219,7 +219,7 @@ if grep -q "^dynamic_tuning = 1" /etc/tuned/tuned-main.conf 2>/dev/null; then
 else
     sed -i 's/^dynamic_tuning = 0/dynamic_tuning = 1/' /etc/tuned/tuned-main.conf 2>/dev/null || \
         echo "dynamic_tuning = 1" >> /etc/tuned/tuned-main.conf
-    log_info "✓ Dynamic tuning enabled"
+    log_info "[OK] Dynamic tuning enabled"
     ((OPTIMIZATIONS_APPLIED++))
 fi
 
@@ -230,7 +230,7 @@ systemctl restart tuned
 sleep 2
 
 if systemctl is-active --quiet tuned; then
-    log_info "✓ tuned service restarted successfully"
+    log_info "[OK] tuned service restarted successfully"
 else
     log_error "Failed to restart tuned service"
     exit 1

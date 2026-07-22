@@ -20,13 +20,25 @@
     Generates system compliance report
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
 Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
+
+# Logging function
+$script:Component = 'Compliance'
+function Write-Log {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
+}
 
 # Setup local file logging to C:\xoap-logs
 try {
@@ -40,28 +52,22 @@ try {
     $LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
 
     Start-Transcript -Path $LogFile -Append | Out-Null
-    Write-Host "Logging to: $LogFile"
+    Write-Log "Logging to: $LogFile"
 } catch {
-    Write-Warning "Failed to start transcript logging to C:\xoap-logs: $($_.Exception.Message)"
-}
-
-# Simple logging function
-function Write-Log {
-    param($Message)
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Log "Failed to start transcript logging to C:\xoap-logs: $($_.Exception.Message)" -Level WARN
 }
 
 trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
+    Write-Log "Exception: $($_.Exception.ToString())" -Level ERROR
     try { Stop-Transcript | Out-Null } catch {}
-    Exit 1
+    exit 1
 }
 
 try {
-    Write-Log 'Starting compliance report generation'
+    $startTime = Get-Date
+    Write-Log '===== Generate_Compliance_Report starting ====='
 
     $reportPath = Join-Path $LogDir "compliance-report-$timestamp.json"
     Write-Log "Report will be saved to: $reportPath"
@@ -83,7 +89,7 @@ try {
         $complianceData.PowerPlan = $activePlan.ElementName
         Write-Log "Power plan: $($activePlan.ElementName)"
     } catch {
-        Write-Log "Warning: Could not get power plan information"
+        Write-Log "Could not get power plan information" -Level WARN
     }
 
     # Check critical services
@@ -99,7 +105,7 @@ try {
                 Write-Log "Service $service`: $($svc.Status) ($($svc.StartType))"
             }
         } catch {
-            Write-Log "Warning: Could not check service $service"
+            Write-Log "Could not check service $service" -Level WARN
         }
     }
 
@@ -117,7 +123,7 @@ try {
                 Write-Log "Registry: $($check.Path)\$($check.Name) = $($value.($check.Name))"
             }
         } catch {
-            Write-Log "Warning: Could not check registry setting $($check.Path)\$($check.Name)"
+            Write-Log "Could not check registry setting $($check.Path)\$($check.Name)" -Level WARN
         }
     }
 
@@ -127,7 +133,7 @@ try {
         $complianceData.InstalledUpdates = $updates
         Write-Log "Found $($updates.Count) recent updates"
     } catch {
-        Write-Log "Warning: Could not retrieve update information"
+        Write-Log "Could not retrieve update information" -Level WARN
     }
 
     # Save report
@@ -135,10 +141,12 @@ try {
         $complianceData | ConvertTo-Json -Depth 3 | Out-File -FilePath $reportPath -Encoding UTF8
         Write-Log "Compliance report saved successfully"
     } catch {
-        Write-Log "Warning: Could not save compliance report: $($_.Exception.Message)"
+        Write-Log "Could not save compliance report: $($_.Exception.Message)" -Level WARN
     }
 
     Write-Log "Compliance report generation completed successfully"
+    Write-Log "===== Generate_Compliance_Report complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } finally {
     try { Stop-Transcript | Out-Null } catch {}
 }

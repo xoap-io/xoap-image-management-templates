@@ -87,28 +87,16 @@ $script:OperationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+# Leveled logging function (stdout is the state channel)
+function Write-Log {
     param(
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+    Write-Host "[$timestamp] [$Level] [SchedTasks] $Message"
 }
 
 function Test-IsAdministrator {
@@ -143,15 +131,15 @@ function New-ScheduledTaskEx {
         [bool]$TaskEnabled = $true
     )
     
-    Write-LogMessage "Creating scheduled task: $Name" -Level Info
+    Write-Log "Creating scheduled task: $Name" -Level INFO
     
     try {
         # Check if task already exists
         $existingTask = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
         
         if ($existingTask) {
-            Write-LogMessage "  ⚠ Task already exists: $Name" -Level Warning
-            Write-LogMessage "  Removing existing task..." -Level Info
+            Write-Log "  [WARN] Task already exists: $Name" -Level WARN
+            Write-Log "  Removing existing task..." -Level INFO
             Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction Stop
         }
         
@@ -225,16 +213,16 @@ function New-ScheduledTaskEx {
             -Description $Description `
             -ErrorAction Stop
         
-        Write-LogMessage "  ✓ Task created successfully" -Level Success
-        Write-LogMessage "    Name: $Name" -Level Info
-        Write-LogMessage "    Schedule: $ScheduleType" -Level Info
-        Write-LogMessage "    Execute: $Execute" -Level Info
+        Write-Log "  [OK] Task created successfully" -Level INFO
+        Write-Log "    Name: $Name" -Level INFO
+        Write-Log "    Schedule: $ScheduleType" -Level INFO
+        Write-Log "    Execute: $Execute" -Level INFO
         
         $script:TasksCreated++
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error creating task: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error creating task: $($_.Exception.Message)" -Level ERROR
         $script:OperationsFailed++
         return $false
     }
@@ -250,24 +238,24 @@ function Remove-ScheduledTaskEx {
         [string]$Name
     )
     
-    Write-LogMessage "Removing scheduled task: $Name" -Level Info
+    Write-Log "Removing scheduled task: $Name" -Level INFO
     
     try {
         $task = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
         
         if (-not $task) {
-            Write-LogMessage "  ⚠ Task not found: $Name" -Level Warning
+            Write-Log "  [WARN] Task not found: $Name" -Level WARN
             return $true
         }
         
         Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction Stop
         
-        Write-LogMessage "  ✓ Task removed successfully" -Level Success
+        Write-Log "  [OK] Task removed successfully" -Level INFO
         $script:TasksRemoved++
         return $true
     }
     catch {
-        Write-LogMessage "  ✗ Error removing task: $($_.Exception.Message)" -Level Error
+        Write-Log "  [FAIL] Error removing task: $($_.Exception.Message)" -Level ERROR
         $script:OperationsFailed++
         return $false
     }
@@ -278,8 +266,8 @@ function Remove-ScheduledTaskEx {
 #region Maintenance Tasks
 
 function New-MaintenanceTasks {
-    Write-LogMessage "Creating maintenance scheduled tasks..." -Level Info
-    Write-LogMessage "" -Level Info
+    Write-Log "Creating maintenance scheduled tasks..." -Level INFO
+    Write-Log "" -Level INFO
     
     # 1. Windows Update Check (Daily at 3 AM)
     New-ScheduledTaskEx `
@@ -355,8 +343,8 @@ function New-MaintenanceTasks {
         -ScheduleTime "00:00" `
         -SystemAccount $true
     
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "Maintenance tasks created successfully" -Level Success
+    Write-Log "" -Level INFO
+    Write-Log "Maintenance tasks created successfully" -Level INFO
 }
 
 #endregion
@@ -364,54 +352,54 @@ function New-MaintenanceTasks {
 #region Task Listing
 
 function Show-ScheduledTasks {
-    Write-LogMessage "Scheduled Tasks:" -Level Info
-    Write-LogMessage "=" * 80 -Level Info
+    Write-Log "Scheduled Tasks:" -Level INFO
+    Write-Log "=" * 80 -Level INFO
     
     try {
         $tasks = Get-ScheduledTask | Where-Object { $_.TaskPath -notlike "*Microsoft*" } | Sort-Object TaskName
         
         if ($tasks.Count -eq 0) {
-            Write-LogMessage "No custom scheduled tasks found" -Level Warning
+            Write-Log "No custom scheduled tasks found" -Level WARN
             return
         }
         
-        Write-LogMessage "Found $($tasks.Count) custom task(s):" -Level Info
-        Write-LogMessage "" -Level Info
+        Write-Log "Found $($tasks.Count) custom task(s):" -Level INFO
+        Write-Log "" -Level INFO
         
         foreach ($task in $tasks) {
             $info = Get-ScheduledTaskInfo -TaskName $task.TaskName -ErrorAction SilentlyContinue
             
-            $status = if ($task.State -eq 'Ready') { '✓' } elseif ($task.State -eq 'Running') { '⏵' } else { '✗' }
+            $status = if ($task.State -eq 'Ready') { '[OK]' } elseif ($task.State -eq 'Running') { '>' } else { '[FAIL]' }
             $enabled = if ($task.Settings.Enabled) { 'Enabled' } else { 'Disabled' }
             
-            Write-LogMessage "$status $($task.TaskName) - $enabled" -Level Info
-            Write-LogMessage "  Path: $($task.TaskPath)" -Level Info
-            Write-LogMessage "  State: $($task.State)" -Level Info
+            Write-Log "$status $($task.TaskName) - $enabled" -Level INFO
+            Write-Log "  Path: $($task.TaskPath)" -Level INFO
+            Write-Log "  State: $($task.State)" -Level INFO
             
             if ($info) {
                 if ($info.LastRunTime) {
-                    Write-LogMessage "  Last Run: $($info.LastRunTime)" -Level Info
+                    Write-Log "  Last Run: $($info.LastRunTime)" -Level INFO
                 }
                 if ($info.NextRunTime) {
-                    Write-LogMessage "  Next Run: $($info.NextRunTime)" -Level Info
+                    Write-Log "  Next Run: $($info.NextRunTime)" -Level INFO
                 }
-                Write-LogMessage "  Last Result: $($info.LastTaskResult)" -Level Info
+                Write-Log "  Last Result: $($info.LastTaskResult)" -Level INFO
             }
             
             # Trigger info
             if ($task.Triggers) {
-                Write-LogMessage "  Triggers:" -Level Info
+                Write-Log "  Triggers:" -Level INFO
                 foreach ($trigger in $task.Triggers) {
                     $triggerType = $trigger.CimClass.CimClassName -replace 'MSFT_TaskTrigger', ''
-                    Write-LogMessage "    - $triggerType" -Level Info
+                    Write-Log "    - $triggerType" -Level INFO
                 }
             }
             
-            Write-LogMessage "" -Level Info
+            Write-Log "" -Level INFO
         }
     }
     catch {
-        Write-LogMessage "Error listing tasks: $($_.Exception.Message)" -Level Error
+        Write-Log "Error listing tasks: $($_.Exception.Message)" -Level ERROR
     }
 }
 
@@ -420,7 +408,7 @@ function Show-ScheduledTasks {
 #region Reporting
 
 function Get-ScheduledTaskReport {
-    Write-LogMessage "Generating scheduled tasks report..." -Level Info
+    Write-Log "Generating scheduled tasks report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "scheduled-tasks-$timestamp.txt"
@@ -470,11 +458,11 @@ function Get-ScheduledTaskReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Task report saved to: $reportFile" -Level Success
+        Write-Log "Task report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -484,19 +472,23 @@ function Get-ScheduledTaskReport {
 #region Main Execution
 
 function Main {
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
+    }
+
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Scheduled Tasks Configuration" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Configure_Scheduled_Tasks starting ====="
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
@@ -506,7 +498,7 @@ function Main {
     # Create custom task
     if ($CreateTask) {
         if (-not $TaskName -or -not $ScriptPath) {
-            Write-LogMessage "TaskName and ScriptPath parameters are required" -Level Error
+            Write-Log "TaskName and ScriptPath parameters are required" -Level ERROR
             exit 1
         }
         
@@ -528,7 +520,7 @@ function Main {
     # Remove task
     if ($RemoveTask) {
         if (-not $TaskName) {
-            Write-LogMessage "TaskName parameter is required for removal" -Level Error
+            Write-Log "TaskName parameter is required for removal" -Level ERROR
             exit 1
         }
         
@@ -550,8 +542,8 @@ function Main {
     
     # If no operation specified, list tasks
     if (-not $operationPerformed) {
-        Write-LogMessage "No operation specified. Listing scheduled tasks..." -Level Info
-        Write-LogMessage "" -Level Info
+        Write-Log "No operation specified. Listing scheduled tasks..." -Level INFO
+        Write-Log "" -Level INFO
         Show-ScheduledTasks
     }
     
@@ -559,25 +551,14 @@ function Main {
     Get-ScheduledTaskReport | Out-Null
     
     # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Scheduled Tasks Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Tasks Created: $script:TasksCreated" -Level Info
-    Write-LogMessage "Tasks Removed: $script:TasksRemoved" -Level Info
-    Write-LogMessage "Operations Failed: $script:OperationsFailed" -Level Info
-    Write-LogMessage "Duration: $([math]::Round($duration.TotalSeconds, 2)) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
+    $duration = ((Get-Date) - $scriptStartTime).TotalSeconds
+
     if ($script:OperationsFailed -eq 0) {
-        Write-LogMessage "Scheduled tasks configuration completed successfully!" -Level Success
+        Write-Log "===== Configure_Scheduled_Tasks complete in $([int]$duration)s; created=$($script:TasksCreated) removed=$($script:TasksRemoved) failed=$($script:OperationsFailed) ====="
         exit 0
     }
     else {
-        Write-LogMessage "Configuration completed with $script:OperationsFailed failures" -Level Warning
+        Write-Log "===== Configure_Scheduled_Tasks complete in $([int]$duration)s; created=$($script:TasksCreated) removed=$($script:TasksRemoved) failed=$($script:OperationsFailed) =====" -Level WARN
         exit 1
     }
 }
@@ -587,9 +568,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

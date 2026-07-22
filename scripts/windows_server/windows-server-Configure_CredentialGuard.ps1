@@ -28,44 +28,41 @@ $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
 
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0, Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [CredGuard] $Message"
-    Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
+    Write-Host "[$timestamp] [$Level] [CredGuard] $Message"
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
     exit 1
 }
 
 try {
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
     }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
+
     $startTime = Get-Date
-    
-    Write-Log "==================================================="
-    Write-Log "Credential Guard Configuration Script"
-    Write-Log "==================================================="
-    
+
+    Write-Log "===== Configure_CredentialGuard starting ====="
+
     # Check system requirements
     Write-Log "Checking system requirements..."
     
@@ -73,12 +70,12 @@ try {
     try {
         $firmwareType = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' -Name 'UEFISecureBootEnabled' -ErrorAction Stop).UEFISecureBootEnabled
         if ($firmwareType -eq 1) {
-            Write-Log "✓ UEFI Secure Boot is enabled"
+            Write-Log "[OK] UEFI Secure Boot is enabled"
         } else {
-            Write-Log "UEFI Secure Boot is not enabled" -Level Warning
+            Write-Log "UEFI Secure Boot is not enabled" -Level WARN
         }
     } catch {
-        Write-Log "Could not verify UEFI status: $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not verify UEFI status: $($_.Exception.Message)" -Level WARN
     }
     
     # Check for TPM
@@ -89,12 +86,12 @@ try {
         Write-Log "TPM Ready: $($tpm.TpmReady)"
         
         if ($tpm.TpmPresent -and $tpm.TpmReady) {
-            Write-Log "✓ TPM is available and ready"
+            Write-Log "[OK] TPM is available and ready"
         } else {
-            Write-Log "TPM requirements not met" -Level Warning
+            Write-Log "TPM requirements not met" -Level WARN
         }
     } catch {
-        Write-Log "TPM check failed: $($_.Exception.Message)" -Level Warning
+        Write-Log "TPM check failed: $($_.Exception.Message)" -Level WARN
     }
     
     # Check virtualization extensions
@@ -115,7 +112,7 @@ try {
             }
         }
     } catch {
-        Write-Log "Could not check virtualization support: $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not check virtualization support: $($_.Exception.Message)" -Level WARN
     }
     
     # Enable required Windows features
@@ -134,14 +131,14 @@ try {
             if ($featureState -and $featureState.State -ne 'Enabled') {
                 Write-Log "Enabling feature: $feature"
                 Enable-WindowsOptionalFeature -Online -FeatureName $feature -All -NoRestart -ErrorAction Stop
-                Write-Log "✓ $feature enabled"
+                Write-Log "[OK] $feature enabled"
             } elseif ($featureState) {
-                Write-Log "✓ $feature already enabled"
+                Write-Log "[OK] $feature already enabled"
             } else {
-                Write-Log "$feature not found" -Level Warning
+                Write-Log "$feature not found" -Level WARN
             }
         } catch {
-            Write-Log "Could not enable $feature : $($_.Exception.Message)" -Level Warning
+            Write-Log "Could not enable $feature : $($_.Exception.Message)" -Level WARN
         }
     }
     
@@ -159,7 +156,7 @@ try {
         Set-ItemProperty -Path $regPath -Name 'EnableVirtualizationBasedSecurity' -Value 1 -Type DWord
         Set-ItemProperty -Path $regPath -Name 'RequirePlatformSecurityFeatures' -Value 1 -Type DWord # 1 = Secure Boot only, 3 = Secure Boot and DMA
         
-        Write-Log "✓ Virtualization-based security enabled"
+        Write-Log "[OK] Virtualization-based security enabled"
         
         # Enable Credential Guard
         $lsaRegPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
@@ -168,7 +165,7 @@ try {
         }
         
         Set-ItemProperty -Path $lsaRegPath -Name 'LsaCfgFlags' -Value 1 -Type DWord # 1 = Enabled with UEFI lock, 2 = Enabled without lock
-        Write-Log "✓ Credential Guard enabled"
+        Write-Log "[OK] Credential Guard enabled"
         
         # Enable HVCI (Hypervisor-protected Code Integrity)
         $hvciRegPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity'
@@ -177,10 +174,10 @@ try {
         }
         
         Set-ItemProperty -Path $hvciRegPath -Name 'Enabled' -Value 1 -Type DWord
-        Write-Log "✓ HVCI (Hypervisor-protected Code Integrity) enabled"
+        Write-Log "[OK] HVCI (Hypervisor-protected Code Integrity) enabled"
         
     } catch {
-        Write-Log "Error configuring registry: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring registry: $($_.Exception.Message)" -Level ERROR
         throw
     }
     
@@ -191,14 +188,14 @@ try {
     try {
         # Kernel DMA Protection (if supported)
         Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard' -Name 'RequireDMAProtection' -Value 1 -Type DWord -ErrorAction SilentlyContinue
-        Write-Log "✓ Kernel DMA Protection configured"
+        Write-Log "[OK] Kernel DMA Protection configured"
         
         # Secure Boot
         Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard' -Name 'Locked' -Value 1 -Type DWord -ErrorAction SilentlyContinue
-        Write-Log "✓ Secure Boot lock configured"
+        Write-Log "[OK] Secure Boot lock configured"
         
     } catch {
-        Write-Log "Error configuring additional settings: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring additional settings: $($_.Exception.Message)" -Level WARN
     }
     
     # Verify configuration
@@ -214,35 +211,25 @@ try {
         Write-Log "  Code Integrity Status: $($deviceGuard.CodeIntegrityPolicyEnforcementStatus)"
         
     } catch {
-        Write-Log "Could not verify configuration: $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not verify configuration: $($_.Exception.Message)" -Level WARN
     }
     
     # Summary
-    $endTime = Get-Date
-    $duration = ($endTime - $startTime).TotalSeconds
-    
-    Write-Log ""
-    Write-Log "==================================================="
-    Write-Log "Credential Guard Configuration Summary"
-    Write-Log "==================================================="
+    $duration = ((Get-Date) - $startTime).TotalSeconds
+
     Write-Log "Virtualization-based Security: Enabled"
     Write-Log "Credential Guard: Enabled"
     Write-Log "HVCI: Enabled"
-    Write-Log "Execution time: $([math]::Round($duration, 2))s"
-    Write-Log "==================================================="
-    Write-Log "Credential Guard configuration completed!"
-    Write-Log ""
-    Write-Log "IMPORTANT:"
-    Write-Log "  - A system restart is REQUIRED for changes to take effect"
-    Write-Log "  - Verify after restart with: Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard"
-    Write-Log "  - Credential Guard provides protection against:"
-    Write-Log "    • Pass-the-Hash attacks"
-    Write-Log "    • Pass-the-Ticket attacks"
-    Write-Log "    • Credential theft from LSASS"
-    
+    Write-Log "IMPORTANT: A system restart is REQUIRED for changes to take effect" -Level WARN
+    Write-Log "Verify after restart with: Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard"
+    Write-Log "Credential Guard protects against Pass-the-Hash, Pass-the-Ticket, and LSASS credential theft"
+    Write-Log "===== Configure_CredentialGuard complete in $([int]$duration)s ====="
+
 } catch {
-    Write-Log "Script execution failed: $_" -Level Error
+    Write-Log "Script execution failed: $_" -Level ERROR
     exit 1
 } finally {
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
 }
+
+exit 0

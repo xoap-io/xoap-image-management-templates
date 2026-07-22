@@ -212,29 +212,29 @@ else
         log_info "Recommendations:"
         
         if [[ "$CRITICAL_UPDATES" -gt 0 ]]; then
-            log_warn "  ⚠ $CRITICAL_UPDATES critical security updates available"
-            log_warn "  ⚠ Apply immediately: ./update_system.sh --security-only"
+            log_warn "  [WARN] $CRITICAL_UPDATES critical security updates available"
+            log_warn "  [WARN] Apply immediately: ./update_system.sh --security-only"
         elif [[ "$SECURITY_UPDATES" -gt 0 ]]; then
-            log_info "  • Security updates available"
-            log_info "  • Run: ./update_system.sh --security-only"
+            log_info "  * Security updates available"
+            log_info "  * Run: ./update_system.sh --security-only"
         fi
         
         if [[ "$KERNEL_UPDATES" -gt 0 ]]; then
-            log_info "  • Kernel updates available"
-            log_info "  • Run: ./update_system.sh --kernel"
+            log_info "  * Kernel updates available"
+            log_info "  * Run: ./update_system.sh --kernel"
         fi
         
         if [[ "$TOTAL_UPDATES" -gt 0 ]]; then
-            log_info "  • Full system update: ./update_system.sh"
+            log_info "  * Full system update: ./update_system.sh"
         fi
         
         if [[ "$REBOOT_REQUIRED" == "true" ]]; then
-            log_warn "  ⚠ System reboot required"
+            log_warn "  [WARN] System reboot required"
         fi
     else
         log_info ""
-        log_info "✓ System is up to date"
-        log_info "✓ No updates available"
+        log_info "[OK] System is up to date"
+        log_info "[OK] No updates available"
     fi
 fi
 

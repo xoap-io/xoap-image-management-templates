@@ -76,29 +76,25 @@ $script:RebootCycles = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+$script:Component = 'WindowsUpdate'
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+
+    $line = "[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message
+    Write-Host $line
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [WindowsUpdate] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 function Test-IsAdministrator {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -111,23 +107,23 @@ function Test-IsAdministrator {
 #region PSWindowsUpdate Module
 
 function Install-PSWindowsUpdateModule {
-    Write-LogMessage "Checking for PSWindowsUpdate module..." -Level Info
+    Write-Log "Checking for PSWindowsUpdate module..." -Level INFO
     
     try {
         $module = Get-Module -Name PSWindowsUpdate -ListAvailable
         
         if ($module) {
-            Write-LogMessage "PSWindowsUpdate module is already installed (Version: $($module.Version))" -Level Info
+            Write-Log "PSWindowsUpdate module is already installed (Version: $($module.Version))" -Level INFO
             Import-Module PSWindowsUpdate -Force
             return $true
         }
         
         if (-not $InstallModule) {
-            Write-LogMessage "PSWindowsUpdate module not found. Use -InstallModule to install it." -Level Error
+            Write-Log "PSWindowsUpdate module not found. Use -InstallModule to install it." -Level ERROR
             return $false
         }
         
-        Write-LogMessage "Installing PSWindowsUpdate module..." -Level Info
+        Write-Log "Installing PSWindowsUpdate module..." -Level INFO
         
         # Set TLS 1.2
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -135,7 +131,7 @@ function Install-PSWindowsUpdateModule {
         # Install NuGet provider if needed
         $nuget = Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue
         if (-not $nuget) {
-            Write-LogMessage "Installing NuGet provider..." -Level Info
+            Write-Log "Installing NuGet provider..." -Level INFO
             Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
         }
         
@@ -146,11 +142,11 @@ function Install-PSWindowsUpdateModule {
         Install-Module -Name PSWindowsUpdate -Force -SkipPublisherCheck
         Import-Module PSWindowsUpdate -Force
         
-        Write-LogMessage "PSWindowsUpdate module installed successfully" -Level Success
+        Write-Log "PSWindowsUpdate module installed successfully" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error installing PSWindowsUpdate module: $($_.Exception.Message)" -Level Error
+        Write-Log "Error installing PSWindowsUpdate module: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
@@ -160,33 +156,33 @@ function Install-PSWindowsUpdateModule {
 #region Windows Update Operations
 
 function Get-PendingUpdates {
-    Write-LogMessage "Checking for available updates..." -Level Info
+    Write-Log "Checking for available updates..." -Level INFO
     
     try {
         $updates = Get-WindowsUpdate -MicrosoftUpdate
         
         if ($updates.Count -eq 0) {
-            Write-LogMessage "No updates available" -Level Info
+            Write-Log "No updates available" -Level INFO
             return $null
         }
         
-        Write-LogMessage "Found $($updates.Count) available updates:" -Level Info
+        Write-Log "Found $($updates.Count) available updates:" -Level INFO
         
         foreach ($update in $updates) {
             $size = if ($update.Size -gt 0) { "$([math]::Round($update.Size / 1MB, 2)) MB" } else { "Unknown" }
-            Write-LogMessage "  - $($update.Title) ($size)" -Level Info
+            Write-Log "  - $($update.Title) ($size)" -Level INFO
         }
         
         return $updates
     }
     catch {
-        Write-LogMessage "Error checking for updates: $($_.Exception.Message)" -Level Error
+        Write-Log "Error checking for updates: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
 
 function Install-Updates {
-    Write-LogMessage "Installing Windows Updates..." -Level Info
+    Write-Log "Installing Windows Updates..." -Level INFO
     
     try {
         # Build filter criteria
@@ -231,13 +227,12 @@ function Install-Updates {
             # PSWindowsUpdate handles category filtering differently
         }
         
-        Write-LogMessage "Installing updates with the following settings:" -Level Info
-        Write-LogMessage "  Categories: $($Category -join ', ')" -Level Info
-        Write-LogMessage "  Exclude Preview: $ExcludePreview" -Level Info
-        Write-LogMessage "  Exclude Drivers: $ExcludeDrivers" -Level Info
-        Write-LogMessage "  Exclude Feature Updates: $ExcludeFeatureUpdates" -Level Info
-        Write-LogMessage "  Auto Reboot: $AutoReboot" -Level Info
-        Write-LogMessage "" -Level Info
+        Write-Log "Installing updates with the following settings:" -Level INFO
+        Write-Log "  Categories: $($Category -join ', ')" -Level INFO
+        Write-Log "  Exclude Preview: $ExcludePreview" -Level INFO
+        Write-Log "  Exclude Drivers: $ExcludeDrivers" -Level INFO
+        Write-Log "  Exclude Feature Updates: $ExcludeFeatureUpdates" -Level INFO
+        Write-Log "  Auto Reboot: $AutoReboot" -Level INFO
         
         # Install updates
         $result = Install-WindowsUpdate @installParams
@@ -245,15 +240,15 @@ function Install-Updates {
         if ($result) {
             foreach ($update in $result) {
                 if ($update.Result -eq 'Installed' -or $update.Result -eq 'Downloaded') {
-                    Write-LogMessage "  ✓ $($update.Title) - $($update.Result)" -Level Success
+                    Write-Log "  [OK] $($update.Title) - $($update.Result)" -Level INFO
                     $script:UpdatesInstalled++
                 }
                 elseif ($update.Result -eq 'Failed') {
-                    Write-LogMessage "  ✗ $($update.Title) - Failed" -Level Error
+                    Write-Log "  [FAIL] $($update.Title) - Failed" -Level ERROR
                     $script:UpdatesFailed++
                 }
                 else {
-                    Write-LogMessage "  ⚠ $($update.Title) - $($update.Result)" -Level Warning
+                    Write-Log "  [WARN] $($update.Title) - $($update.Result)" -Level WARN
                 }
             }
         }
@@ -262,35 +257,34 @@ function Install-Updates {
         $rebootRequired = Get-WURebootStatus -Silent
         
         if ($rebootRequired) {
-            Write-LogMessage "System reboot is required" -Level Warning
+            Write-Log "System reboot is required" -Level WARN
             return $true  # Reboot needed
         }
         
         return $false  # No reboot needed
     }
     catch {
-        Write-LogMessage "Error installing updates: $($_.Exception.Message)" -Level Error
+        Write-Log "Error installing updates: $($_.Exception.Message)" -Level ERROR
         $script:UpdatesFailed++
         return $false
     }
 }
 
 function Start-UpdateCycle {
-    Write-LogMessage "Starting Windows Update cycle..." -Level Info
+    Write-Log "Starting Windows Update cycle..." -Level INFO
     
     $cycleCount = 0
     $maxCycles = $MaxRebootCycles
     
     while ($cycleCount -lt $maxCycles) {
         $cycleCount++
-        Write-LogMessage "" -Level Info
-        Write-LogMessage "========== Update Cycle $cycleCount of $maxCycles ==========" -Level Info
+        Write-Log "Update Cycle $cycleCount of $maxCycles" -Level INFO
         
         # Check for updates
         $updates = Get-PendingUpdates
         
         if (-not $updates) {
-            Write-LogMessage "No more updates available" -Level Success
+            Write-Log "No more updates available" -Level INFO
             break
         }
         
@@ -302,20 +296,21 @@ function Start-UpdateCycle {
             $script:RebootCycles++
             
             if ($AutoReboot) {
-                Write-LogMessage "System will reboot in 60 seconds..." -Level Warning
-                Write-LogMessage "Reboot cycle: $script:RebootCycles" -Level Info
+                Write-Log "System will reboot in 60 seconds..." -Level WARN
+                Write-Log "Reboot cycle: $script:RebootCycles" -Level INFO
                 
                 Start-Sleep -Seconds 5
-                
+
                 # Schedule script to run after reboot
                 # Note: This requires additional setup for production use
-                
+
+                try { Stop-Transcript | Out-Null } catch {}
                 Restart-Computer -Force
                 exit 0
             }
             else {
-                Write-LogMessage "Reboot required but AutoReboot is disabled" -Level Warning
-                Write-LogMessage "Please reboot and re-run this script to continue" -Level Info
+                Write-Log "Reboot required but AutoReboot is disabled" -Level WARN
+                Write-Log "Please reboot and re-run this script to continue" -Level INFO
                 break
             }
         }
@@ -325,7 +320,7 @@ function Start-UpdateCycle {
     }
     
     if ($cycleCount -ge $maxCycles) {
-        Write-LogMessage "Reached maximum reboot cycles ($maxCycles)" -Level Warning
+        Write-Log "Reached maximum reboot cycles ($maxCycles)" -Level WARN
     }
 }
 
@@ -334,29 +329,29 @@ function Start-UpdateCycle {
 #region Reporting
 
 function Get-WindowsUpdateHistory {
-    Write-LogMessage "Retrieving Windows Update history..." -Level Info
+    Write-Log "Retrieving Windows Update history..." -Level INFO
     
     try {
         $history = Get-WUHistory -Last 20 -ErrorAction SilentlyContinue
         
         if ($history) {
-            Write-LogMessage "Recent update history:" -Level Info
+            Write-Log "Recent update history:" -Level INFO
             foreach ($item in $history) {
-                $status = if ($item.Result -eq 'Succeeded') { '✓' } else { '✗' }
-                Write-LogMessage "  $status $($item.Title) - $($item.Date.ToString('yyyy-MM-dd'))" -Level Info
+                $status = if ($item.Result -eq 'Succeeded') { '[OK]' } else { '[FAIL]' }
+                Write-Log "  $status $($item.Title) - $($item.Date.ToString('yyyy-MM-dd'))" -Level INFO
             }
         }
         
         return $history
     }
     catch {
-        Write-LogMessage "Error retrieving update history: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error retrieving update history: $($_.Exception.Message)" -Level WARN
         return $null
     }
 }
 
 function Get-WindowsUpdateReport {
-    Write-LogMessage "Generating Windows Update report..." -Level Info
+    Write-Log "Generating Windows Update report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "windows-updates-$timestamp.txt"
@@ -414,11 +409,11 @@ function Get-WindowsUpdateReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Update report saved to: $reportFile" -Level Success
+        Write-Log "Update report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -429,18 +424,13 @@ function Get-WindowsUpdateReport {
 
 function Main {
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Windows Updates Installation" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Install_Windows_Updates starting ====="
+    Write-Log "Log File: $LogFile"
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
@@ -448,16 +438,15 @@ function Main {
     $moduleReady = Install-PSWindowsUpdateModule
     
     if (-not $moduleReady) {
-        Write-LogMessage "PSWindowsUpdate module is required" -Level Error
-        Write-LogMessage "Run with -InstallModule to install it automatically" -Level Info
+        Write-Log "PSWindowsUpdate module is required" -Level ERROR
+        Write-Log "Run with -InstallModule to install it automatically" -Level INFO
         exit 1
     }
     
     # Get current Windows version
     $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
-    Write-LogMessage "Operating System: $($osInfo.Caption)" -Level Info
-    Write-LogMessage "Version: $($osInfo.Version) (Build $($osInfo.BuildNumber))" -Level Info
-    Write-LogMessage "" -Level Info
+    Write-Log "Operating System: $($osInfo.Caption)" -Level INFO
+    Write-Log "Version: $($osInfo.Version) (Build $($osInfo.BuildNumber))" -Level INFO
     
     # Start update cycle
     Start-UpdateCycle
@@ -468,37 +457,22 @@ function Main {
     # Generate report
     Get-WindowsUpdateReport | Out-Null
     
-    # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Update Session Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Updates Installed: $script:UpdatesInstalled" -Level Info
-    Write-LogMessage "Updates Failed: $script:UpdatesFailed" -Level Info
-    Write-LogMessage "Reboot Cycles: $script:RebootCycles" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalMinutes) minutes" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
     # Check final reboot status
     $rebootRequired = Get-WURebootStatus -Silent -ErrorAction SilentlyContinue
     if ($rebootRequired) {
-        Write-LogMessage "" -Level Info
-        Write-LogMessage "A system reboot is required to complete updates" -Level Warning
-        
+        Write-Log "A system reboot is required to complete updates" -Level WARN
+
         if (-not $AutoReboot) {
-            Write-LogMessage "Run with -AutoReboot to restart automatically" -Level Info
+            Write-Log "Run with -AutoReboot to restart automatically"
         }
     }
-    
+
     if ($script:UpdatesFailed -eq 0) {
-        Write-LogMessage "Windows Updates completed successfully!" -Level Success
+        Write-Log "===== Install_Windows_Updates complete in $([int]((Get-Date) - $scriptStartTime).TotalSeconds)s; applied=$script:UpdatesInstalled failed=$script:UpdatesFailed ====="
         exit 0
     }
     else {
-        Write-LogMessage "Updates completed with $script:UpdatesFailed failures" -Level Warning
+        Write-Log "Updates completed with $script:UpdatesFailed failures" -Level WARN
         exit 1
     }
 }
@@ -508,9 +482,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

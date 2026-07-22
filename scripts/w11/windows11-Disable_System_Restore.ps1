@@ -23,6 +23,14 @@ Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [SysRestore] Transcript unavailable: $($_.Exception.Message)" }
+
 function Write-Log {
     param(
         [Parameter(Mandatory)]
@@ -44,12 +52,13 @@ function Write-Log {
 trap {
     Write-Log "Critical error: $_" -Level Error
     ($_.ScriptStackTrace -split '\r?\n') | ForEach-Object { Write-Log "STACK: $_" -Level Error }
-    Write-Log 'Sleeping for 60m to allow investigation...' -Level Error
-    Start-Sleep -Seconds 3600
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
+    $startTime = Get-Date
+    Write-Log "===== Disable_System_Restore starting ====="
     $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
     
     # ProductType: 1 = Workstation, 2 = Domain Controller, 3 = Server
@@ -60,8 +69,12 @@ try {
     } else {
         Write-Log "Server edition detected - System Restore not available, skipping"
     }
-    
+    Write-Log "===== Disable_System_Restore complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Failed to disable System Restore: $($_.Exception.Message)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

@@ -47,8 +47,18 @@ function Write-Log {
     Write-Host "[$timestamp] [$prefix] [Chocolatey] $Message"
 }
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [Chocolatey] Transcript unavailable: $($_.Exception.Message)" }
+
 # Main script execution
 try {
+    $startTime = Get-Date
+    Write-Log '===== Install_Chocolatey starting ====='
     Write-Log "Starting Chocolatey installation..."
     
     # Check if Chocolatey is already installed
@@ -84,9 +94,14 @@ try {
         Remove-Item $chocoScript -Force -ErrorAction SilentlyContinue
         Write-Log "Cleaned up installation script"
     }
-    
+
+    Write-Log "===== Install_Chocolatey complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Error: $($_.Exception.Message)" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

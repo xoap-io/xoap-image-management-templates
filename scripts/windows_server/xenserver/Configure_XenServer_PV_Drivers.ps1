@@ -30,7 +30,7 @@
     Applies all performance optimizations
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -51,9 +51,12 @@ $ProgressPreference = 'SilentlyContinue'
 
 # Configuration
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'xenserver-pv-config'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [XenPV] Transcript unavailable: $($_.Exception.Message)" }
 
 # Statistics tracking
 $script:ConfigurationsApplied = 0
@@ -64,25 +67,20 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [XenPV] $Message"
+    $logMessage = "[$timestamp] [$Level] [XenPV] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 # Error handler
 trap {
-    Write-Log "Critical error: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -94,6 +92,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Configure_XenServer_PV_Drivers starting ====="
     
     Write-Log "========================================================="
     Write-Log "XenServer PV Drivers Configuration"
@@ -117,7 +116,7 @@ try {
         throw "No XenServer PV drivers found. Please install XenServer Tools first."
     }
     
-    Write-Log "✓ Found XenServer PV drivers:"
+    Write-Log "[OK] Found XenServer PV drivers:"
     foreach ($driver in $xenDrivers) {
         Write-Log "  - $($driver.DeviceName)"
         Write-Log "    Version: $($driver.DriverVersion), Provider: $($driver.DriverProviderName)"
@@ -132,7 +131,7 @@ try {
     foreach ($serviceName in $xenServices) {
         $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         if ($svc) {
-            Write-Log "✓ Service $serviceName : $($svc.Status)"
+            Write-Log "[OK] Service $serviceName : $($svc.Status)"
             if ($svc.Status -ne 'Running') {
                 try {
                     Start-Service -Name $serviceName -ErrorAction Stop
@@ -140,13 +139,13 @@ try {
                     $script:ConfigurationsApplied++
                 }
                 catch {
-                    Write-Log "  Failed to start service: $($_.Exception.Message)" -Level Warning
+                    Write-Log "  Failed to start service: $($_.Exception.Message)" -Level WARN
                     $script:ConfigurationsFailed++
                 }
             }
         }
         else {
-            Write-Log "Service $serviceName not found" -Level Warning
+            Write-Log "Service $serviceName not found" -Level WARN
         }
     }
     
@@ -168,23 +167,23 @@ try {
                 try {
                     # Enable Jumbo Frames (9000 bytes)
                     Set-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName "Jumbo Packet" -DisplayValue "9014" -ErrorAction SilentlyContinue
-                    Write-Log "  ✓ Set Jumbo Frames to 9014"
+                    Write-Log "  [OK] Set Jumbo Frames to 9014"
                     
                     # Configure Receive/Transmit Buffers
                     Set-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName "Receive Buffers" -DisplayValue "2048" -ErrorAction SilentlyContinue
                     Set-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName "Transmit Buffers" -DisplayValue "2048" -ErrorAction SilentlyContinue
-                    Write-Log "  ✓ Configured buffer sizes"
+                    Write-Log "  [OK] Configured buffer sizes"
                     
                     $script:ConfigurationsApplied++
                 }
                 catch {
-                    Write-Log "  Failed to configure adapter: $($_.Exception.Message)" -Level Warning
+                    Write-Log "  Failed to configure adapter: $($_.Exception.Message)" -Level WARN
                     $script:ConfigurationsFailed++
                 }
             }
         }
         else {
-            Write-Log "No XenServer network adapters found" -Level Warning
+            Write-Log "No XenServer network adapters found" -Level WARN
         }
     }
     
@@ -206,11 +205,11 @@ try {
                     Disable-NetAdapterLso -Name $adapter.Name -ErrorAction SilentlyContinue
                     Disable-NetAdapterRsc -Name $adapter.Name -ErrorAction SilentlyContinue
                     
-                    Write-Log "✓ Disabled offloading for: $($adapter.Name)"
+                    Write-Log "[OK] Disabled offloading for: $($adapter.Name)"
                     $script:ConfigurationsApplied++
                 }
                 catch {
-                    Write-Log "Failed to disable offloading: $($_.Exception.Message)" -Level Warning
+                    Write-Log "Failed to disable offloading: $($_.Exception.Message)" -Level WARN
                     $script:ConfigurationsFailed++
                 }
             }
@@ -227,7 +226,7 @@ try {
             $diskTimeoutPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Disk'
             if (Test-Path $diskTimeoutPath) {
                 Set-ItemProperty -Path $diskTimeoutPath -Name 'TimeOutValue' -Value 60 -Type DWord -Force
-                Write-Log "✓ Set disk timeout to 60 seconds"
+                Write-Log "[OK] Set disk timeout to 60 seconds"
                 $script:ConfigurationsApplied++
             }
             
@@ -237,12 +236,12 @@ try {
                 New-Item -Path $optimizePath -Force | Out-Null
             }
             Set-ItemProperty -Path $optimizePath -Name 'EnableAutoLayout' -Value 0 -Type DWord -Force
-            Write-Log "✓ Disabled automatic disk layout optimization"
+            Write-Log "[OK] Disabled automatic disk layout optimization"
             $script:ConfigurationsApplied++
             
         }
         catch {
-            Write-Log "Storage optimization failed: $($_.Exception.Message)" -Level Warning
+            Write-Log "Storage optimization failed: $($_.Exception.Message)" -Level WARN
             $script:ConfigurationsFailed++
         }
     }
@@ -257,7 +256,7 @@ try {
         if (Test-Path $xenRegPath) {
             # Enable performance optimizations
             Set-ItemProperty -Path $xenRegPath -Name 'DisableAutoUpdate' -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
-            Write-Log "✓ Disabled XenTools auto-update"
+            Write-Log "[OK] Disabled XenTools auto-update"
             $script:ConfigurationsApplied++
         }
         
@@ -265,12 +264,12 @@ try {
         $tcpipPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters'
         Set-ItemProperty -Path $tcpipPath -Name 'TcpTimedWaitDelay' -Value 30 -Type DWord -Force
         Set-ItemProperty -Path $tcpipPath -Name 'MaxUserPort' -Value 65534 -Type DWord -Force
-        Write-Log "✓ Applied TCP/IP optimizations"
+        Write-Log "[OK] Applied TCP/IP optimizations"
         $script:ConfigurationsApplied++
         
     }
     catch {
-        Write-Log "Registry optimization failed: $($_.Exception.Message)" -Level Warning
+        Write-Log "Registry optimization failed: $($_.Exception.Message)" -Level WARN
         $script:ConfigurationsFailed++
     }
     
@@ -306,8 +305,12 @@ try {
     Write-Log ""
     Write-Log "Note: Some changes may require a system restart."
     
+    Write-Log "===== Configure_XenServer_PV_Drivers complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Configuration failed: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Configuration failed: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

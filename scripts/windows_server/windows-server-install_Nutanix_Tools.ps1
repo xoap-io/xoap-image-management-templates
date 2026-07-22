@@ -28,28 +28,16 @@ $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
 
+$script:Component = 'Nutanix'
 function Write-Log {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
-    )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [Nutanix] $Message"
-    Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
+    param([string]$Message, [ValidateSet('INFO', 'WARN', 'ERROR')][string]$Level = 'INFO')
+    $line = "[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message
+    Write-Host $line
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
-    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
     exit 1
 }
@@ -62,10 +50,8 @@ try {
     Start-Transcript -Path $LogFile -Append | Out-Null
     $startTime = Get-Date
     
-    Write-Log "==================================================="
-    Write-Log "Nutanix Guest Tools (NGT) Installation"
-    Write-Log "==================================================="
-    
+    Write-Log "===== install_Nutanix_Tools starting ====="
+
     # Detect Nutanix
     Write-Log "Detecting virtualization platform..."
     $isNutanix = $false
@@ -80,13 +66,13 @@ try {
         
         if ($manufacturer -match 'Nutanix' -or $model -match 'AHV') {
             $isNutanix = $true
-            Write-Log "✓ Running on Nutanix AHV"
+            Write-Log "[OK] Running on Nutanix AHV"
         } else {
-            Write-Log "Not running on Nutanix AHV" -Level Warning
+            Write-Log "Not running on Nutanix AHV" -Level WARN
             Write-Log "Continuing installation anyway..."
         }
     } catch {
-        Write-Log "Could not detect platform: $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not detect platform: $($_.Exception.Message)" -Level WARN
     }
     
     # Check for existing NGT installation
@@ -116,7 +102,7 @@ try {
                 Write-Log "Installing VirtIO drivers..."
                 
                 Start-Process -FilePath 'msiexec.exe' -ArgumentList "/i `"$($virtioFiles[0].FullName)`" /qn /norestart" -Wait -NoNewWindow
-                Write-Log "✓ VirtIO drivers installed"
+                Write-Log "[OK] VirtIO drivers installed"
             }
             
             # Look for NGT setup.exe
@@ -130,7 +116,7 @@ try {
                 
                 $ngtService = Get-Service -Name 'NutanixGuestAgent' -ErrorAction SilentlyContinue
                 if ($ngtService) {
-                    Write-Log "✓ Nutanix Guest Tools installed successfully"
+                    Write-Log "[OK] Nutanix Guest Tools installed successfully"
                     $installerFound = $true
                     break
                 }
@@ -138,7 +124,7 @@ try {
         }
         
         if (-not $installerFound) {
-            Write-Log "NGT installer not found" -Level Warning
+            Write-Log "NGT installer not found" -Level WARN
             Write-Log "Mount NGT ISO via Prism and run this script again"
         }
     }
@@ -151,7 +137,7 @@ try {
         foreach ($svcName in $services) {
             $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
             if ($svc) {
-                Write-Log "  ✓ $svcName : $($svc.Status)"
+                Write-Log "  [OK] $svcName : $($svc.Status)"
                 
                 if ($svc.Status -ne 'Running' -and $svc.StartType -ne 'Disabled') {
                     Start-Service -Name $svcName -ErrorAction SilentlyContinue
@@ -174,31 +160,23 @@ try {
         foreach ($driver in $drivers) {
             $driverInfo = Get-WindowsDriver -Online -Driver $driver.Name -ErrorAction SilentlyContinue
             if ($driverInfo) {
-                Write-Log "  ✓ $($driver.Description) installed"
+                Write-Log "  [OK] $($driver.Description) installed"
             } else {
                 Write-Log "  - $($driver.Description) not found (may not be required)"
             }
         }
     } catch {
-        Write-Log "Could not enumerate drivers: $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not enumerate drivers: $($_.Exception.Message)" -Level WARN
     }
     
     # Summary
-    $endTime = Get-Date
-    $duration = ($endTime - $startTime).TotalSeconds
-    
-    Write-Log ""
-    Write-Log "==================================================="
-    Write-Log "Nutanix Guest Tools Summary"
-    Write-Log "==================================================="
     Write-Log "Platform: $(if ($isNutanix) { 'Nutanix AHV' } else { 'Non-Nutanix' })"
-    Write-Log "Guest Tools: $(if ($ngtService) { '✓ Installed' } else { '✗ Not installed' })"
+    Write-Log "Guest Tools: $(if ($ngtService) { '[OK] Installed' } else { '[FAIL] Not installed' })"
     Write-Log "Service Status: $(if ($ngtService) { $ngtService.Status } else { 'N/A' })"
-    Write-Log "Execution time: $([math]::Round($duration, 2))s"
-    Write-Log "==================================================="
-    
+    Write-Log "===== install_Nutanix_Tools complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } catch {
-    Write-Log "Script execution failed: $_" -Level Error
+    Write-Log "Script execution failed: $_" -Level ERROR
     exit 1
 } finally {
     try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}

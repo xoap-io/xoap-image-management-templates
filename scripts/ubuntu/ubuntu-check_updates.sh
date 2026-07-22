@@ -47,7 +47,7 @@ log_info "Updating package lists..."
 apt-get update -qq 2>&1 | tee /tmp/apt_update_check.log >/dev/null
 
 if [[ ${PIPESTATUS[0]} -eq 0 ]]; then
-    log_info "✓ Package lists updated"
+    log_info "[OK] Package lists updated"
 else
     log_error "Failed to update package lists"
     exit 1
@@ -61,7 +61,7 @@ UPGRADABLE=$(apt list --upgradable 2>/dev/null | grep -v "^Listing" | wc -l || e
 log_info "Total upgradable packages: $UPGRADABLE"
 
 if [[ $UPGRADABLE -gt 0 ]]; then
-    log_warn "⚠ $UPGRADABLE package(s) available for upgrade"
+    log_warn "[WARN] $UPGRADABLE package(s) available for upgrade"
     
     # List upgradable packages
     log_info ""
@@ -72,7 +72,7 @@ if [[ $UPGRADABLE -gt 0 ]]; then
         log_info "  $line"
     done
 else
-    log_info "✓ System is up to date"
+    log_info "[OK] System is up to date"
 fi
 
 # Check for security updates
@@ -89,9 +89,9 @@ if command -v unattended-upgrade &>/dev/null; then
 fi
 
 if [[ $SECURITY_UPDATES -gt 0 ]]; then
-    log_warn "⚠ $SECURITY_UPDATES security update(s) available"
+    log_warn "[WARN] $SECURITY_UPDATES security update(s) available"
 else
-    log_info "✓ No pending security updates"
+    log_info "[OK] No pending security updates"
 fi
 
 # Check for kernel updates
@@ -110,9 +110,9 @@ LATEST_KERNEL=$(apt-cache policy linux-image-generic 2>/dev/null | grep "Candida
 INSTALLED_KERNEL_VERSION=$(apt-cache policy linux-image-generic 2>/dev/null | grep "Installed:" | awk '{print $2}')
 
 if [[ "$LATEST_KERNEL" != "$INSTALLED_KERNEL_VERSION" ]] && [[ "$LATEST_KERNEL" != "(none)" ]]; then
-    log_warn "⚠ Newer kernel available: $LATEST_KERNEL (installed: $INSTALLED_KERNEL_VERSION)"
+    log_warn "[WARN] Newer kernel available: $LATEST_KERNEL (installed: $INSTALLED_KERNEL_VERSION)"
 else
-    log_info "✓ Kernel is up to date"
+    log_info "[OK] Kernel is up to date"
 fi
 
 # Check Ubuntu version and EOL status
@@ -141,7 +141,7 @@ log_info ""
 log_info "Checking reboot requirements..."
 
 if [[ -f /var/run/reboot-required ]]; then
-    log_warn "⚠ REBOOT REQUIRED"
+    log_warn "[WARN] REBOOT REQUIRED"
     
     if [[ -f /var/run/reboot-required.pkgs ]]; then
         log_info "Packages requiring reboot:"
@@ -150,7 +150,7 @@ if [[ -f /var/run/reboot-required ]]; then
         done
     fi
 else
-    log_info "✓ No reboot required"
+    log_info "[OK] No reboot required"
 fi
 
 # Check disk space
@@ -163,11 +163,11 @@ ROOT_AVAIL=$(df -h / | awk 'NR==2 {print $4}')
 log_info "Root filesystem usage: ${ROOT_USAGE}% (available: ${ROOT_AVAIL})"
 
 if [[ $ROOT_USAGE -gt 90 ]]; then
-    log_warn "⚠ Root filesystem usage is high: ${ROOT_USAGE}%"
+    log_warn "[WARN] Root filesystem usage is high: ${ROOT_USAGE}%"
 elif [[ $ROOT_USAGE -gt 80 ]]; then
     log_warn "Root filesystem usage is elevated: ${ROOT_USAGE}%"
 else
-    log_info "✓ Disk space is sufficient"
+    log_info "[OK] Disk space is sufficient"
 fi
 
 # Check apt cache size

@@ -56,13 +56,13 @@ if [[ "$VIRT_PLATFORM" != "none" ]] && [[ "$CURRENT_SWAPPINESS" -gt 10 ]]; then
     log_info "Adjusting swappiness for virtual machine..."
     echo "vm.swappiness = 10" > /etc/sysctl.d/99-vm-swappiness.conf
     sysctl -w vm.swappiness=10 &>/dev/null || log_warn "Failed to set swappiness"
-    log_info "✓ Swappiness set to 10"
+    log_info "[OK] Swappiness set to 10"
     ((OPTIMIZATIONS_APPLIED++))
 elif [[ "$VIRT_PLATFORM" == "none" ]] && [[ "$CURRENT_SWAPPINESS" -ne 60 ]]; then
     log_info "Setting default swappiness for physical machine..."
     echo "vm.swappiness = 60" > /etc/sysctl.d/99-vm-swappiness.conf
     sysctl -w vm.swappiness=60 &>/dev/null || log_warn "Failed to set swappiness"
-    log_info "✓ Swappiness set to 60"
+    log_info "[OK] Swappiness set to 60"
     ((OPTIMIZATIONS_APPLIED++))
 else
     log_info "Swappiness already optimized"
@@ -112,7 +112,7 @@ EOF
 
 systemctl daemon-reload
 
-log_info "✓ systemd settings optimized"
+log_info "[OK] systemd settings optimized"
 ((OPTIMIZATIONS_APPLIED++))
 
 # Optimize journald
@@ -131,7 +131,7 @@ EOF
 
 systemctl restart systemd-journald
 
-log_info "✓ journald settings optimized"
+log_info "[OK] journald settings optimized"
 ((OPTIMIZATIONS_APPLIED++))
 
 # Optimize network parameters
@@ -170,7 +170,7 @@ EOF
 
 sysctl -p /etc/sysctl.d/99-network-optimization.conf &>/dev/null
 
-log_info "✓ Network parameters optimized"
+log_info "[OK] Network parameters optimized"
 ((OPTIMIZATIONS_APPLIED++))
 
 # Optimize file system settings
@@ -190,7 +190,7 @@ EOF
 
 sysctl -p /etc/sysctl.d/99-fs-optimization.conf &>/dev/null
 
-log_info "✓ File system settings optimized"
+log_info "[OK] File system settings optimized"
 ((OPTIMIZATIONS_APPLIED++))
 
 # Disable unnecessary services (safe to disable)
@@ -206,7 +206,7 @@ for service in "${UNNECESSARY_SERVICES[@]}"; do
     if systemctl is-enabled --quiet "$service" 2>/dev/null; then
         systemctl disable --quiet "$service" 2>/dev/null || true
         systemctl stop "$service" 2>/dev/null || true
-        log_info "  ✓ Disabled $service"
+        log_info "  [OK] Disabled $service"
     fi
 done
 

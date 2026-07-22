@@ -83,16 +83,31 @@ autounattend/
 
 ## Windows 11 24H2 Editions (10 editions per hypervisor)
 
-- **Education** - `Windows 10 Education`
-- **EducationN** - `Windows 10 Education N`
-- **Enterprise** - `Windows 10 Enterprise`
-- **EnterpriseN** - `Windows 10 Enterprise N`
-- **Pro** - `Windows 10 Pro`
-- **ProN** - `Windows 10 Pro N`
-- **ProEducation** - `Windows 10 Pro Education`
-- **ProEducationN** - `Windows 10 Pro Education N`
-- **ProWorkstation** - `Windows 10 Pro for Workstations`
-- **ProNWorkstation** - `Windows 10 Pro N for Workstations`
+- **Education** - `Windows 11 Education`
+- **EducationN** - `Windows 11 Education N`
+- **Enterprise** - `Windows 11 Enterprise`
+- **EnterpriseN** - `Windows 11 Enterprise N`
+- **Pro** - `Windows 11 Pro`
+- **ProN** - `Windows 11 Pro N`
+- **ProEducation** - `Windows 11 Pro Education`
+- **ProEducationN** - `Windows 11 Pro Education N`
+- **ProWorkstation** - `Windows 11 Pro for Workstations`
+- **ProNWorkstation** - `Windows 11 Pro N for Workstations`
+
+> The `/IMAGE/NAME` metadata in each Windows 11 answer file must match the edition
+> name inside the Windows 11 install media (`Windows 11 <edition>`). Earlier revisions
+> incorrectly carried `Windows 10 <edition>` names, which caused Setup to fail edition
+> selection against a Windows 11 ISO.
+
+### Windows 11 24H2/25H2 hardware requirement bypass
+
+Windows 11 24H2 Setup enforces TPM 2.0, Secure Boot, a supported CPU, and minimum
+RAM/storage. The BIOS/MBR trees (`vsphere`, `nutanix`, `xenserver`, `hyperv` Gen1)
+target hypervisor generations that do not expose a virtual TPM, so their answer files
+set the well-known `HKLM\SYSTEM\Setup\LabConfig` bypass flags during the `windowsPE`
+pass via `RunSynchronous` commands (`BypassTPMCheck`, `BypassSecureBootCheck`,
+`BypassRAMCheck`, `BypassStorageCheck`, `BypassCPUCheck`). The `hyperv-gen2` (UEFI)
+tree relies on a host-side vTPM and does **not** set these flags.
 
 ## File Count Summary
 
@@ -210,6 +225,13 @@ Disk 0:
 </PathAndCredentials>
 <!-- ... 9 more driver paths ... -->
 ```
+
+> **Driver source note:** the answer files reference driver paths on the mounted VirtIO
+> ISO (`E:\`), including a `2k25` path for Windows Server 2025 / Windows 11. The virtio
+> drivers vendored in this repository under `drivers/` do **not** currently include a
+> `2k25` subfolder (and `qxldod` stops at `2k19`/`w10`). For 2025 builds, mount an
+> up-to-date VirtIO ISO that provides the `2k25` paths — the repo-bundled `drivers/`
+> tree is only sufficient for the older targets it contains.
 
 ## Usage with Packer
 

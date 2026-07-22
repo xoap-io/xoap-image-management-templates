@@ -58,7 +58,7 @@ log_info "Installing WALinuxAgent..."
 
 if ! rpm -q python-azure-agent &>/dev/null && ! rpm -q WALinuxAgent &>/dev/null; then
     if zypper install -y WALinuxAgent; then
-        log_info "✓ WALinuxAgent installed"
+        log_info "[OK] WALinuxAgent installed"
         ((CONFIGS_APPLIED++))
     else
         log_error "Failed to install WALinuxAgent"
@@ -89,7 +89,7 @@ if [[ -f "$WAAGENT_CONF" ]]; then
     # Enable monitoring
     sed -i 's/Provisioning.MonitorHostName=.*/Provisioning.MonitorHostName=y/' "$WAAGENT_CONF"
     
-    log_info "✓ WALinuxAgent configured"
+    log_info "[OK] WALinuxAgent configured"
     ((CONFIGS_APPLIED++))
 else
     log_warn "WALinuxAgent configuration file not found"
@@ -102,7 +102,7 @@ systemctl enable waagent
 systemctl start waagent &>/dev/null || log_warn "WALinuxAgent failed to start (normal if not on Azure)"
 
 if systemctl is-active --quiet waagent; then
-    log_info "✓ WALinuxAgent is running"
+    log_info "[OK] WALinuxAgent is running"
 else
     log_info "WALinuxAgent service enabled (will start on Azure)"
 fi
@@ -114,7 +114,7 @@ log_info "Installing cloud-init..."
 
 if ! rpm -q cloud-init &>/dev/null; then
     if zypper install -y cloud-init; then
-        log_info "✓ cloud-init installed"
+        log_info "[OK] cloud-init installed"
         ((CONFIGS_APPLIED++))
     else
         log_warn "Failed to install cloud-init"
@@ -146,7 +146,7 @@ datasource:
       hostname_command: hostname
 EOF
     
-    log_info "✓ cloud-init configured for Azure"
+    log_info "[OK] cloud-init configured for Azure"
     ((CONFIGS_APPLIED++))
 fi
 
@@ -164,7 +164,7 @@ if ! command -v az &>/dev/null; then
     
     if zypper install -y azure-cli; then
         AZ_VERSION=$(az version --output json 2>/dev/null | grep -o '"azure-cli": "[^"]*"' | cut -d'"' -f4)
-        log_info "✓ Azure CLI installed: $AZ_VERSION"
+        log_info "[OK] Azure CLI installed: $AZ_VERSION"
         ((CONFIGS_APPLIED++))
     else
         log_warn "Failed to install Azure CLI"
@@ -182,7 +182,7 @@ if systemctl is-active --quiet NetworkManager; then
     log_info "Disabling NetworkManager (incompatible with Azure agent)..."
     systemctl stop NetworkManager
     systemctl disable NetworkManager
-    log_info "✓ NetworkManager disabled"
+    log_info "[OK] NetworkManager disabled"
     ((CONFIGS_APPLIED++))
 fi
 
@@ -197,7 +197,7 @@ if [[ -f "$DHCP_CONF" ]]; then
 timeout 300;
 retry 60;
 EOF
-        log_info "✓ DHCP client configured"
+        log_info "[OK] DHCP client configured"
         ((CONFIGS_APPLIED++))
     fi
 fi
@@ -219,7 +219,7 @@ EOF
 
 sysctl --system &>/dev/null || log_warn "Failed to apply sysctl settings"
 
-log_info "✓ Kernel parameters configured"
+log_info "[OK] Kernel parameters configured"
 ((CONFIGS_APPLIED++))
 
 # Configure udev rules for Azure
@@ -245,14 +245,14 @@ EOF
 udevadm control --reload-rules
 udevadm trigger
 
-log_info "✓ udev rules configured"
+log_info "[OK] udev rules configured"
 ((CONFIGS_APPLIED++))
 
 # Install Hyper-V drivers/tools
 log_info "Installing Hyper-V tools..."
 
 if zypper install -y hyperv-daemons; then
-    log_info "✓ Hyper-V daemons installed"
+    log_info "[OK] Hyper-V daemons installed"
     
     # Enable Hyper-V services
     for service in hv-fcopy-daemon hv-kvp-daemon hv-vss-daemon; do
@@ -279,7 +279,7 @@ EOF
 
 chmod +x /usr/local/bin/azure-metadata
 
-log_info "✓ Azure metadata helper created"
+log_info "[OK] Azure metadata helper created"
 ((CONFIGS_APPLIED++))
 
 # Verify installations
@@ -289,26 +289,26 @@ COMPONENTS_OK=0
 COMPONENTS_FAIL=0
 
 if rpm -q WALinuxAgent &>/dev/null || rpm -q python-azure-agent &>/dev/null; then
-    log_info "  ✓ WALinuxAgent installed"
+    log_info "  [OK] WALinuxAgent installed"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ WALinuxAgent not found"
+    log_warn "  [FAIL] WALinuxAgent not found"
     ((COMPONENTS_FAIL++))
 fi
 
 if rpm -q cloud-init &>/dev/null; then
-    log_info "  ✓ cloud-init installed"
+    log_info "  [OK] cloud-init installed"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ cloud-init not found"
+    log_warn "  [FAIL] cloud-init not found"
     ((COMPONENTS_FAIL++))
 fi
 
 if command -v az &>/dev/null; then
-    log_info "  ✓ Azure CLI available"
+    log_info "  [OK] Azure CLI available"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ Azure CLI not found"
+    log_warn "  [FAIL] Azure CLI not found"
     ((COMPONENTS_FAIL++))
 fi
 

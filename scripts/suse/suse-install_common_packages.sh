@@ -112,7 +112,7 @@ log_info "Packages to install: ${#PACKAGES[@]}"
 log_info "Refreshing package repositories..."
 
 if zypper refresh 2>&1 | tee /tmp/zypper-refresh.log; then
-    log_info "✓ Repositories refreshed"
+    log_info "[OK] Repositories refreshed"
 else
     log_warn "Failed to refresh some repositories"
 fi
@@ -122,15 +122,15 @@ log_info "Installing packages..."
 
 for package in "${PACKAGES[@]}"; do
     if rpm -q "$package" &>/dev/null; then
-        log_info "  ○ $package already installed"
+        log_info "  o $package already installed"
     else
         log_info "  Installing $package..."
         
         if zypper install -y "$package" &>/tmp/zypper-install-${package}.log; then
-            log_info "    ✓ Installed $package"
+            log_info "    [OK] Installed $package"
             ((PACKAGES_INSTALLED++))
         else
-            log_warn "    ✗ Failed to install $package"
+            log_warn "    [FAIL] Failed to install $package"
             ((PACKAGES_FAILED++))
             tail -n 5 /tmp/zypper-install-${package}.log | while IFS= read -r line; do
                 log_warn "      $line"
@@ -156,10 +156,10 @@ VERIFICATION_FAILED=0
 for package in "${CRITICAL_PACKAGES[@]}"; do
     if rpm -q "$package" &>/dev/null; then
         VERSION=$(rpm -q "$package" --queryformat '%{VERSION}')
-        log_info "  ✓ $package ($VERSION)"
+        log_info "  [OK] $package ($VERSION)"
         ((VERIFICATION_PASSED++))
     else
-        log_warn "  ✗ $package not installed"
+        log_warn "  [FAIL] $package not installed"
         ((VERIFICATION_FAILED++))
     fi
 done
@@ -169,7 +169,7 @@ log_info "Installing Python and pip..."
 
 if ! rpm -q python3 &>/dev/null; then
     if zypper install -y python3 python3-pip; then
-        log_info "✓ Python3 and pip installed"
+        log_info "[OK] Python3 and pip installed"
         ((PACKAGES_INSTALLED++))
     else
         log_warn "Failed to install Python3"

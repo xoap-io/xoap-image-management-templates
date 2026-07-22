@@ -1,0 +1,147 @@
+# Windows 11 Citrix VDA + MCS master image (alpaka v6 taxonomy, DSL version "2.0").
+#
+# On-prem Citrix demo: builds from Windows 11 install media on vSphere (vsphere-iso),
+# installs the Citrix VDA in MCS master-image mode, prepares the MCS master image,
+# applies the Citrix optimization pass, runs an in-build Pester gate, then generalizes.
+#
+# Script references are resolved by alpaka INSIDE this template directory (by basename
+# under ./scripts). Run `pwsh examples/sync-demo-scripts.ps1 -Set w11-citrix-mcs` to vendor the
+# referenced scripts into ./scripts before building/uploading. See ../../../docs/ALPAKA_TRANSITION.md.
+version: "2.0"
+description: "Windows 11 vsphere-iso - Citrix VDA + MCS master image"
+
+variables:
+  # --- Install media (Windows 11) ---
+  iso_url: "{{env `W11_ISO_URL`}}"           # e.g. https://.../Win11_24H2_English_x64.iso or a datastore path
+  iso_checksum: "{{env `W11_ISO_CHECKSUM`}}" # e.g. sha256:....
+  # Windows 11 Enterprise unattended answer file presented to Setup (relative to this template dir).
+  autounattend_file: "../../../autounattend/W11/vsphere/Autounattend-Enterprise.xml"
+  # --- Citrix ---
+  citrix_vda_installer: "" # e.g. C:\media\VDAWorkstationSetup_2402.exe (REQUIRED - no public download)
+  citrix_controllers: ""   # e.g. ddc1.corp.local,ddc2.corp.local (optional)
+  # --- Guest WinRM (must match the Administrator password set by the answer file) ---
+  winrm_username: "Administrator"
+  winrm_password: "{{env `WINRM_PASSWORD`}}"
+
+sensitive_variables:
+  - winrm_password
+
+target_platforms:
+  - type: vsphere-iso
+    name: w11-citrix-mcs
+    # --- vCenter connection ---
+    vcenter_server: "{{env `VSPHERE_SERVER`}}"
+    username: "{{env `VSPHERE_USERNAME`}}"
+    password: "{{env `VSPHERE_PASSWORD`}}"
+    cluster: "{{env `VSPHERE_CLUSTER`}}"
+    datastore: "{{env `VSPHERE_DATASTORE`}}"
+    datacenter: "{{env `VSPHERE_DATACENTER`}}"
+    insecure_connection: true
+
+    # --- VM hardware ---
+    vm_name: "w11-citrix-mcs-{{timestamp}}"
+    guest_os_type: "windows11_64Guest"
+    firmware: "efi-secure"
+    vtpm: true
+    CPUs: 4
+    RAM: 8192
+    disk_controller_type: "pvscsi"
+    storage:
+      - disk_size: 65536
+        disk_thin_provisioned: true
+    network_adapters:
+      - network: "{{env `VSPHERE_NETWORK`}}"
+        network_card: "vmxnet3"
+
+    # --- Install media wiring ---
+    iso_url: "{{ iso_url }}"
+    iso_checksum: "{{ iso_checksum }}"
+    # Autounattend answer file attached on a floppy; Windows Setup consumes it unattended.
+    floppy_files:
+      - "{{ autounattend_file }}"
+
+    # --- Boot / HTTP (communicator + boot autotype) ---
+    http_directory: ""
+    boot_wait: "3s"
+    boot_command:
+      - "<spacebar>" # "Press any key to boot from CD/DVD"
+    ip_wait_timeout: "30m"
+
+    # --- Output ---
+    convert_to_template: true
+    shutdown_command: "shutdown /s /t 10 /f /d p:4:1 /c \"Alpaka Shutdown\""
+
+# Communicator: alpaka talks to the guest over WinRM (enabled by the answer file).
+connection:
+  type: winrm
+  username: "{{ winrm_username }}"
+  password: "{{ winrm_password }}"
+  use_ssl: true
+  insecure: true
+  timeout: "30m"
+
+# Each action sets its own `timeout` — the orchestrator enforces the wall-clock bound.
+actions:
+  - type: windows-update
+    name: patch
+    timeout: "60m"
+
+  - type: powershell
+    name: install-citrix-vda
+    timeout: "30m"
+    script: "scripts/windows11-Install_Citrix_VDA.ps1"
+    environment:
+      CITRIX_VDA_INSTALLER: "{{ citrix_vda_installer }}"
+      CITRIX_VDA_MODE: "MCS"
+      CITRIX_VDA_EDITION: "Workstation"
+      CITRIX_CONTROLLERS: "{{ citrix_controllers }}"
+    valid_exit_codes: [0, 3010] # VDA install signals reboot-required (3010)
+
+  - type: windows-restart
+    name: restart-after-vda
+    timeout: "10m"
+
+  - type: powershell
+    name: prepare-citrix-mcs
+    timeout: "15m"
+    script: "scripts/windows11-Prepare_Citrix_MCS.ps1"
+
+  - type: powershell
+    name: citrix-optimizations
+    timeout: "15m"
+    script: "scripts/windows11-Configure_Citrix_Optimizations.ps1"
+
+  # --- In-build validation gate: stage + run Pester; a failure aborts the build ---
+  - type: file
+    name: stage-tests
+    timeout: "5m"
+    source: "tests/CitrixVDA.Tests.ps1"
+    destination: "C:/Alpaka/Tests/CitrixVDA.Tests.ps1"
+    direction: "upload"
+
+  - type: powershell
+    name: pester-validate
+    timeout: "20m"
+    inline:
+      - "Set-ExecutionPolicy Bypass -Scope Process -Force; [Net.ServicePointManager]::SecurityProtocol=3072; Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null; if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'5.0.0' })) { Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope AllUsers }; Import-Module Pester -MinimumVersion 5.0.0 -Force; $cfg = New-PesterConfiguration; $cfg.Run.Path='C:\\Alpaka\\Tests'; $cfg.Run.PassThru=$true; $cfg.Output.Verbosity='Detailed'; $r=Invoke-Pester -Configuration $cfg; if ($r.FailedCount -gt 0) { throw (\"Pester: {0}/{1} tests failed\" -f $r.FailedCount,$r.TotalCount) }"
+
+  - type: powershell
+    name: cleanup
+    timeout: "15m"
+    script: "scripts/windows11-Cleanup_Temporary_Files.ps1"
+
+  - type: powershell
+    name: sysprep-generalize
+    timeout: "30m"
+    script: "scripts/windows-server-Invoke_Sysprep.ps1"
+    environment:
+      SYSPREP_VMMODE: "1"
+      SYSPREP_MODE: "OOBE"
+      SYSPREP_SHUTDOWN: "Shutdown"
+    valid_exit_codes: [0, 3010]
+
+post_build:
+  - name: manifest
+    type: manifest
+    output: "w11-citrix-mcs-manifest.json"
+    strip_path: true

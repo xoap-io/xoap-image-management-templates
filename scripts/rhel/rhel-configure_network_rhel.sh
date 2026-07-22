@@ -99,7 +99,7 @@ if ! command -v nmcli &>/dev/null; then
     log_info "Installing NetworkManager..."
     
     if $PKG_MGR install -y NetworkManager; then
-        log_info "✓ NetworkManager installed"
+        log_info "[OK] NetworkManager installed"
         ((CONFIGS_MODIFIED++))
     else
         log_error "Failed to install NetworkManager"
@@ -116,7 +116,7 @@ systemctl enable NetworkManager
 systemctl start NetworkManager
 
 if systemctl is-active --quiet NetworkManager; then
-    log_info "✓ NetworkManager is running"
+    log_info "[OK] NetworkManager is running"
 else
     log_error "Failed to start NetworkManager"
     exit 1
@@ -200,20 +200,20 @@ if [[ "$STATIC_IP" == "true" ]]; then
     nmcli connection modify "$NM_CONNECTION" ipv4.gateway "$GATEWAY"
     nmcli connection modify "$NM_CONNECTION" ipv4.dns "$DNS_SERVERS"
     
-    log_info "✓ Static IP configuration applied"
+    log_info "[OK] Static IP configuration applied"
     ((CONFIGS_MODIFIED++))
 else
     log_info "Configuring DHCP..."
     
     nmcli connection modify "$NM_CONNECTION" ipv4.method auto
     
-    log_info "✓ DHCP configuration applied"
+    log_info "[OK] DHCP configuration applied"
     ((CONFIGS_MODIFIED++))
 fi
 
 # Configure connection to autoconnect
 nmcli connection modify "$NM_CONNECTION" connection.autoconnect yes
-log_info "✓ Autoconnect enabled"
+log_info "[OK] Autoconnect enabled"
 
 # Disable IPv6 (optional - uncomment if needed)
 # log_info "Disabling IPv6..."
@@ -227,7 +227,7 @@ nmcli connection down "$NM_CONNECTION" &>/dev/null || log_warn "Could not bring 
 sleep 2
 
 if nmcli connection up "$NM_CONNECTION"; then
-    log_info "✓ Network configuration applied"
+    log_info "[OK] Network configuration applied"
     ((CONFIGS_MODIFIED++))
 else
     log_error "Failed to bring up connection"
@@ -252,15 +252,15 @@ log_info "  DNS Servers: $(nmcli -g ipv4.dns connection show "$NM_CONNECTION" ||
 log_info "Testing network connectivity..."
 
 if ping -c 2 -W 3 "$GATEWAY" &>/dev/null 2>&1; then
-    log_info "✓ Gateway is reachable"
+    log_info "[OK] Gateway is reachable"
 else
-    log_warn "✗ Gateway is not reachable"
+    log_warn "[FAIL] Gateway is not reachable"
 fi
 
 if ping -c 2 -W 3 8.8.8.8 &>/dev/null 2>&1; then
-    log_info "✓ Internet connectivity confirmed"
+    log_info "[OK] Internet connectivity confirmed"
 else
-    log_warn "✗ No internet connectivity"
+    log_warn "[FAIL] No internet connectivity"
 fi
 
 # Display connection status

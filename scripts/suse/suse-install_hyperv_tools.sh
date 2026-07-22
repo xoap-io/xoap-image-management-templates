@@ -59,7 +59,7 @@ log_info "Installing Hyper-V integration services..."
 HYPERV_PACKAGES="hyperv-daemons hyperv-daemons-licenses"
 
 if zypper install -y $HYPERV_PACKAGES; then
-    log_info "✓ Hyper-V tools installed"
+    log_info "[OK] Hyper-V tools installed"
     ((PACKAGES_INSTALLED++))
 else
     log_error "Failed to install Hyper-V tools"
@@ -91,9 +91,9 @@ for service in "${HYPERV_SERVICES[@]}"; do
         sleep 1
         
         if systemctl is-active --quiet "$service"; then
-            log_info "  ✓ $service is running"
+            log_info "  [OK] $service is running"
         else
-            log_warn "  ✗ $service failed to start"
+            log_warn "  [FAIL] $service failed to start"
         fi
     else
         log_warn "  - $service not available"
@@ -113,15 +113,15 @@ HYPERV_MODULES=(
 
 for module in "${HYPERV_MODULES[@]}"; do
     if lsmod | grep -q "^$module"; then
-        log_info "  ✓ $module loaded"
+        log_info "  [OK] $module loaded"
     else
         log_info "  - $module not loaded"
         
         # Try to load the module
         if modprobe "$module" 2>/dev/null; then
-            log_info "    ✓ $module loaded successfully"
+            log_info "    [OK] $module loaded successfully"
         else
-            log_warn "    ✗ Failed to load $module"
+            log_warn "    [FAIL] Failed to load $module"
         fi
     fi
 done
@@ -138,13 +138,13 @@ hv_utils
 hv_balloon
 EOF
 
-log_info "✓ Module loading configured"
+log_info "[OK] Module loading configured"
 
 # Verify KVP (Key-Value Pair) daemon
 log_info "Verifying KVP daemon..."
 
 if systemctl is-active --quiet hv-kvp-daemon; then
-    log_info "✓ KVP daemon is running"
+    log_info "[OK] KVP daemon is running"
     
     # Check KVP pools
     if [[ -d /var/lib/hyperv ]]; then

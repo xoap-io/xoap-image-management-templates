@@ -1,0 +1,159 @@
+# SLES 15 hardened cloud base image (alpaka v6 taxonomy) — AZURE flavor.
+#
+# Builds a hardened SUSE Linux Enterprise Server 15 golden image in Azure: the azure-arm
+# builder spins a temporary VM from the SLES marketplace image, updates it, installs common
+# packages, configures chronyd, hardens SSH, hardens the kernel (sysctl) and the host
+# firewall (firewalld), applies the Azure guest configuration, runs the optimization pass,
+# validates with a staged shell script (a non-zero exit aborts the build), cleans up, then
+# captures a managed image and publishes a Compute Gallery image version.
+#
+# Script paths below are resolved by alpaka INSIDE this template directory. Vendor the
+# referenced scripts into ./scripts first:  pwsh examples/sync-demo-scripts.ps1 -Set suse-cloud-base
+#
+# CLOUD SWAP: step "cloud-configure" targets AZURE. For AWS or GCP, change the target
+# platform type (amazon-ebs / googlecompute) and swap that action for
+# scripts/suse-aws_configure.sh or scripts/suse-gcp_configure.sh. See ../README.md.
+#
+# NO SYSPREP: Linux images generalize via cloud-init / waagent -deprovision, not Sysprep
+# (see ../README.md).
+version: "2.0"
+description: "SLES 15 azure-arm — hardened cloud base: managed image + gallery version"
+
+variables:
+  image_name: "suse-cloud-base"
+  location: "westeurope"
+  vm_size: "Standard_D2s_v3"
+  images_rg: "alpaka-images-rg"            # existing resource group for the managed image + gallery
+  gallery_name: "alpakaImageGallery"
+  image_version: "1.0.0"
+  ssh_username: "azureuser"
+  ssh_password: "Alpaka!Build2026"
+
+sensitive_variables:
+  - ssh_password
+
+target_platforms:
+  - name: "{{ image_name }}"
+    type: "azure-arm"
+    # --- auth (service principal; resolved from the environment / XOAP Connection) ---
+    client_id: "{{env `AZURE_CLIENT_ID`}}"
+    client_secret: "{{env `AZURE_CLIENT_SECRET`}}"
+    tenant_id: "{{env `AZURE_TENANT_ID`}}"
+    subscription_id: "{{env `AZURE_SUBSCRIPTION_ID`}}"
+    location: "{{ location }}"
+
+    # --- source: SLES 15 SP5 marketplace image (Gen2) ---
+    image_publisher: "SUSE"
+    image_offer: "sles-15-sp5"
+    image_sku: "gen2"
+    image_version: "latest"
+
+    # --- VM ---
+    vm_size: "{{ vm_size }}"
+    os_type: "Linux"
+    os_disk_size_gb: "64"
+    disk_caching_type: "ReadWrite"
+
+    # --- managed image output into an existing RG ---
+    managed_image_name: "{{ image_name }}-golden"
+    managed_image_resource_group_name: "{{ images_rg }}"
+    managed_image_storage_account_type: "Standard_LRS"
+
+    # --- Compute Gallery: publish a new version replicated in the build region ---
+    target_gallery_name: "{{ gallery_name }}"
+    target_resource_group: "{{ images_rg }}"
+    target_image_name: "sles-15-base"
+    target_image_version: "{{ image_version }}"
+    replication_regions: 1
+    target_regions:
+      - name: "westeurope"
+        replica_count: 1
+    exclude_from_latest: false
+
+    azure_tags:
+      Environment: "test"
+      OS: "SLES 15"
+      Role: "cloud-base"
+      ManagedBy: "Alpaka"
+      Flow: "azure-arm-managed-gallery"
+
+connection:
+  type: "ssh"
+  username: "{{ ssh_username }}"
+  password: "{{ ssh_password }}"
+  timeout: "15m"
+
+actions:
+  # 1) Update packages first.
+  - type: shell
+    name: update-system
+    timeout: "60m"
+    script: "scripts/suse-update_system.sh"
+
+  # 2) Baseline packages/tooling.
+  - type: shell
+    name: install-common-packages
+    timeout: "30m"
+    script: "scripts/suse-install_common_packages.sh"
+
+  # 3) Time synchronization (chronyd).
+  - type: shell
+    name: configure-chronyd
+    timeout: "15m"
+    script: "scripts/suse-configure_chronyd.sh"
+
+  # 4) SSH daemon hardening.
+  - type: shell
+    name: ssh-hardening
+    timeout: "15m"
+    script: "scripts/suse-ssh_hardening.sh"
+
+  # 5) Kernel/network sysctl hardening.
+  - type: shell
+    name: sysctl-hardening
+    timeout: "15m"
+    script: "scripts/suse-sysctl_hardening.sh"
+
+  # 6) Host firewall hardening (firewalld).
+  - type: shell
+    name: firewalld-hardening
+    timeout: "15m"
+    script: "scripts/suse-firewalld_hardening.sh"
+
+  # 7) Cloud guest configuration (AZURE). AWS: scripts/suse-aws_configure.sh  GCP: scripts/suse-gcp_configure.sh
+  - type: shell
+    name: cloud-configure
+    timeout: "15m"
+    script: "scripts/suse-azure_configure.sh"
+
+  # 8) Optimization pass.
+  - type: shell
+    name: optimize
+    timeout: "15m"
+    script: "scripts/suse-optimize.sh"
+
+  # 9) Stage + run shell validation; a non-zero exit aborts the build (image never captured).
+  - type: file
+    name: stage-tests
+    source: "../tests/suse-validate.sh"
+    destination: "/tmp/suse-validate.sh"
+    direction: "upload"
+
+  - type: shell
+    name: validate
+    timeout: "10m"
+    inline:
+      - "chmod +x /tmp/suse-validate.sh"
+      - "bash /tmp/suse-validate.sh"
+
+  # 10) Reclaim space / remove build artifacts.
+  - type: shell
+    name: cleanup
+    timeout: "15m"
+    script: "scripts/suse-cleanup.sh"
+
+post_build:
+  - name: "manifest"
+    type: "manifest"
+    output: "suse-cloud-base-azure-manifest.json"
+    strip_path: true

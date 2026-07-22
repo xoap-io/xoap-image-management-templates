@@ -82,7 +82,7 @@ fi
 log_info "Unregistering from SUSE Customer Center..."
 
 if SUSEConnect --de-register 2>&1 | tee /tmp/suse-unregister.log; then
-    log_info "✓ System unregistered successfully"
+    log_info "[OK] System unregistered successfully"
     ((CLEANUP_ITEMS++))
 else
     log_warn "Failed to unregister (may already be unregistered)"
@@ -135,7 +135,7 @@ if SUSEConnect --status &>/dev/null; then
         log_warn "  $line"
     done
 else
-    log_info "✓ System is no longer registered"
+    log_info "[OK] System is no longer registered"
 fi
 
 # Summary statistics

@@ -69,7 +69,7 @@ if ! command -v firewall-cmd &>/dev/null; then
     log_info "Installing firewalld..."
     
     if zypper install -y firewalld; then
-        log_info "✓ firewalld installed"
+        log_info "[OK] firewalld installed"
         ((RULES_CONFIGURED++))
     else
         log_error "Failed to install firewalld"
@@ -89,7 +89,7 @@ systemctl start firewalld
 sleep 2
 
 if systemctl is-active --quiet firewalld; then
-    log_info "✓ firewalld is running"
+    log_info "[OK] firewalld is running"
 else
     log_error "Failed to start firewalld"
     exit 1
@@ -99,7 +99,7 @@ fi
 log_info "Setting default zone to: $DEFAULT_ZONE"
 
 firewall-cmd --set-default-zone="$DEFAULT_ZONE"
-log_info "✓ Default zone set"
+log_info "[OK] Default zone set"
 ((RULES_CONFIGURED++))
 
 # Configure default zone (public)
@@ -120,10 +120,10 @@ if [[ "$SSH_PORT" != "22" ]]; then
     
     # Add custom SSH port
     firewall-cmd --zone="$DEFAULT_ZONE" --add-port="${SSH_PORT}/tcp" --permanent
-    log_info "  ✓ Custom SSH port $SSH_PORT added"
+    log_info "  [OK] Custom SSH port $SSH_PORT added"
 else
     firewall-cmd --zone="$DEFAULT_ZONE" --add-service=ssh --permanent
-    log_info "  ✓ SSH service added"
+    log_info "  [OK] SSH service added"
 fi
 
 ((RULES_CONFIGURED++))
@@ -132,17 +132,17 @@ fi
 firewall-cmd --zone="$DEFAULT_ZONE" --add-rich-rule='rule service name="ssh" limit value="10/m" accept' --permanent 2>/dev/null || \
     log_warn "Could not add SSH rate limiting rule"
 
-log_info "✓ SSH rate limiting configured"
+log_info "[OK] SSH rate limiting configured"
 ((RULES_CONFIGURED++))
 
 # Drop invalid packets
 firewall-cmd --zone="$DEFAULT_ZONE" --add-rich-rule='rule drop log prefix="DROP INVALID " level="warning" limit value="5/m"' --permanent
-log_info "✓ Invalid packet dropping configured"
+log_info "[OK] Invalid packet dropping configured"
 ((RULES_CONFIGURED++))
 
 # Block ping floods
 firewall-cmd --zone="$DEFAULT_ZONE" --add-rich-rule='rule protocol value="icmp" limit value="1/s" accept' --permanent
-log_info "✓ ICMP rate limiting configured"
+log_info "[OK] ICMP rate limiting configured"
 ((RULES_CONFIGURED++))
 
 # Enable panic mode protection (optional - uncomment if needed)
@@ -150,7 +150,7 @@ log_info "✓ ICMP rate limiting configured"
 
 # Configure logging for denied packets
 firewall-cmd --set-log-denied=all --permanent
-log_info "✓ Logging for denied packets enabled"
+log_info "[OK] Logging for denied packets enabled"
 ((RULES_CONFIGURED++))
 
 # Reload firewall to apply changes
@@ -158,7 +158,7 @@ log_info "Reloading firewall configuration..."
 
 firewall-cmd --reload
 
-log_info "✓ Firewall configuration reloaded"
+log_info "[OK] Firewall configuration reloaded"
 
 # Verify configuration
 log_info "Verifying firewall configuration..."

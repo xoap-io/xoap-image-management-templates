@@ -6,10 +6,20 @@
     Enables BitLocker encryption on system drive with TPM or recovery key protection.
     Configures encryption algorithms and recovery key storage.
 
+    ============================ WARNING ============================
+    Do NOT run this on Windows 365 / CloudPC images - BitLocker must remain disabled
+    in a CloudPC custom image; enabling it makes the image unsupported. Windows 365
+    manages disk encryption on the provisioned CloudPC, not in the source image. Run
+    windows11-Validate_CloudPC_Image.ps1 to confirm an image is CloudPC-compliant.
+    =================================================================
+
 .NOTES
     File Name      : windows11-Enable_Bitlocker.ps1
     Prerequisite   : PowerShell 5.1 or higher, Administrator privileges, TPM chip (optional)
     Copyright      : XOAP.io
+
+    WARNING: Do NOT run this on Windows 365 / CloudPC images - BitLocker must remain
+    disabled in a CloudPC custom image; enabling it makes the image unsupported.
     
 .EXAMPLE
     .\windows11-Enable_Bitlocker.ps1
@@ -33,9 +43,13 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $LogDir = 'C:\xoap-logs'
-$scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [BitLocker] Transcript unavailable: $($_.Exception.Message)" }
 
 function Write-Log {
     param(
@@ -53,24 +67,19 @@ function Write-Log {
     }
     $logMessage = "[$timestamp] [$prefix] [BitLocker] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
     Write-Log "Critical error: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
     $startTime = Get-Date
-    
+    Write-Log "===== Enable_Bitlocker starting ====="
+
     Write-Log "==================================================="
     Write-Log "BitLocker Drive Encryption Configuration"
     Write-Log "==================================================="
@@ -87,9 +96,9 @@ try {
         if ($bitlockerFeature.State -ne 'Enabled') {
             Write-Log "Enabling BitLocker feature..."
             Enable-WindowsOptionalFeature -Online -FeatureName 'BitLocker' -All -NoRestart
-            Write-Log "✓ BitLocker feature enabled (restart may be required)"
+            Write-Log "[OK] BitLocker feature enabled (restart may be required)"
         } else {
-            Write-Log "✓ BitLocker feature is already enabled"
+            Write-Log "[OK] BitLocker feature is already enabled"
         }
     } catch {
         Write-Log "Error checking BitLocker feature: $($_.Exception.Message)" -Level Warning
@@ -108,7 +117,7 @@ try {
         
         if ($tpm.TpmPresent -and $tpm.TpmReady) {
             $tpmAvailable = $true
-            Write-Log "✓ TPM is available and ready"
+            Write-Log "[OK] TPM is available and ready"
         } else {
             Write-Log "TPM not ready - will use recovery password method" -Level Warning
         }
@@ -141,7 +150,8 @@ try {
             Write-Log "BitLocker Status: Already Protected"
             Write-Log "Execution time: $([math]::Round($duration, 2))s"
             Write-Log "==================================================="
-            return
+            Write-Log "===== Enable_Bitlocker complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+            exit 0
         }
     }
     
@@ -150,7 +160,7 @@ try {
     Write-Log "Creating recovery key directory..."
     if (-not (Test-Path $RecoveryKeyPath)) {
         New-Item -Path $RecoveryKeyPath -ItemType Directory -Force | Out-Null
-        Write-Log "✓ Recovery key directory created: $RecoveryKeyPath"
+        Write-Log "[OK] Recovery key directory created: $RecoveryKeyPath"
     }
     
     # Configure BitLocker
@@ -163,18 +173,18 @@ try {
             
             # Add TPM protector
             Add-BitLockerKeyProtector -MountPoint $env:SystemDrive -TpmProtector
-            Write-Log "✓ TPM protector added"
+            Write-Log "[OK] TPM protector added"
             
             # Add recovery password protector
             $recoveryPassword = Add-BitLockerKeyProtector -MountPoint $env:SystemDrive -RecoveryPasswordProtector
-            Write-Log "✓ Recovery password protector added"
+            Write-Log "[OK] Recovery password protector added"
             
         } else {
             Write-Log "Enabling BitLocker with password protector..."
             
             # Generate recovery password
             $recoveryPassword = Add-BitLockerKeyProtector -MountPoint $env:SystemDrive -RecoveryPasswordProtector
-            Write-Log "✓ Recovery password protector added"
+            Write-Log "[OK] Recovery password protector added"
         }
         
         # Save recovery key
@@ -184,7 +194,7 @@ try {
         foreach ($keyProtector in $volume.KeyProtector) {
             if ($keyProtector.KeyProtectorType -eq 'RecoveryPassword') {
                 $keyProtector.RecoveryPassword | Out-File -FilePath $recoveryKeyFile -Encoding UTF8
-                Write-Log "✓ Recovery password saved to: $recoveryKeyFile"
+                Write-Log "[OK] Recovery password saved to: $recoveryKeyFile"
                 break
             }
         }
@@ -196,16 +206,16 @@ try {
         Write-Log "Enabling BitLocker encryption..."
         if ($SkipHardwareTest) {
             Enable-BitLocker -MountPoint $env:SystemDrive -EncryptionMethod $EncryptionMethod -SkipHardwareTest -UsedSpaceOnly
-            Write-Log "✓ BitLocker enabled (hardware test skipped)"
+            Write-Log "[OK] BitLocker enabled (hardware test skipped)"
         } else {
             Enable-BitLocker -MountPoint $env:SystemDrive -EncryptionMethod $EncryptionMethod -UsedSpaceOnly
-            Write-Log "✓ BitLocker enabled"
+            Write-Log "[OK] BitLocker enabled"
         }
         
         # Resume BitLocker (in case it's suspended)
         Resume-BitLocker -MountPoint $env:SystemDrive -ErrorAction SilentlyContinue
         
-        Write-Log "✓ BitLocker encryption started"
+        Write-Log "[OK] BitLocker encryption started"
         
     } catch {
         Write-Log "Error enabling BitLocker: $($_.Exception.Message)" -Level Error
@@ -249,10 +259,13 @@ try {
     Write-Log "  - Save the recovery key in a secure location"
     Write-Log "  - Encryption will continue in the background"
     Write-Log "  - Monitor progress with: Get-BitLockerVolume -MountPoint $($env:SystemDrive)"
-    
+
+    Write-Log "===== Enable_Bitlocker complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Script execution failed: $_" -Level Error
     exit 1
 } finally {
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
 }

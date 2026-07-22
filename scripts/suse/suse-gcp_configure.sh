@@ -67,7 +67,7 @@ if ! rpm -q google-compute-engine &>/dev/null; then
     
     # Install guest environment
     if zypper install -y google-compute-engine google-compute-engine-oslogin; then
-        log_info "✓ GCP guest environment installed"
+        log_info "[OK] GCP guest environment installed"
         ((CONFIGS_APPLIED++))
     else
         log_warn "Failed to install GCP guest environment"
@@ -82,7 +82,7 @@ log_info "Installing Google Cloud SDK..."
 if ! command -v gcloud &>/dev/null; then
     if zypper install -y google-cloud-sdk; then
         GCLOUD_VERSION=$(gcloud version 2>/dev/null | grep "Google Cloud SDK" | awk '{print $4}')
-        log_info "✓ Google Cloud SDK installed: $GCLOUD_VERSION"
+        log_info "[OK] Google Cloud SDK installed: $GCLOUD_VERSION"
         ((CONFIGS_APPLIED++))
     else
         log_warn "Failed to install Google Cloud SDK"
@@ -103,7 +103,7 @@ if ! systemctl list-unit-files | grep -q "google-guest-agent"; then
     
     if curl -sL -o google-guest-agent.rpm "$GGA_URL"; then
         if zypper install -y ./google-guest-agent.rpm; then
-            log_info "✓ Google Guest Agent installed"
+            log_info "[OK] Google Guest Agent installed"
             ((CONFIGS_APPLIED++))
         else
             log_warn "Failed to install Google Guest Agent"
@@ -122,7 +122,7 @@ if systemctl list-unit-files | grep -q "google-guest-agent"; then
     systemctl start google-guest-agent &>/dev/null || log_warn "Guest agent failed to start (normal if not on GCP)"
     
     if systemctl is-active --quiet google-guest-agent; then
-        log_info "✓ Google Guest Agent is running"
+        log_info "[OK] Google Guest Agent is running"
     else
         log_info "Guest agent service enabled (will start on GCP)"
     fi
@@ -136,7 +136,7 @@ if rpm -q google-compute-engine-oslogin &>/dev/null; then
     if ! grep -q "google_oslogin" /etc/nsswitch.conf; then
         sed -i '/^passwd:/s/$/ google_oslogin/' /etc/nsswitch.conf
         sed -i '/^group:/s/$/ google_oslogin/' /etc/nsswitch.conf
-        log_info "✓ OS Login added to NSS"
+        log_info "[OK] OS Login added to NSS"
         ((CONFIGS_APPLIED++))
     fi
     
@@ -147,7 +147,7 @@ if rpm -q google-compute-engine-oslogin &>/dev/null; then
 auth       required     pam_oslogin_login.so
 account    required     pam_oslogin_admin.so
 EOF
-        log_info "✓ OS Login PAM configuration created"
+        log_info "[OK] OS Login PAM configuration created"
         ((CONFIGS_APPLIED++))
     fi
 else
@@ -169,7 +169,7 @@ prepend domain-name-servers 169.254.169.254;
 timeout 300;
 retry 60;
 EOF
-        log_info "✓ DHCP client configured"
+        log_info "[OK] DHCP client configured"
         ((CONFIGS_APPLIED++))
     fi
 fi
@@ -187,7 +187,7 @@ EOF
 
 sysctl --system &>/dev/null || log_warn "Failed to apply sysctl settings"
 
-log_info "✓ Kernel parameters configured"
+log_info "[OK] Kernel parameters configured"
 ((CONFIGS_APPLIED++))
 
 # Install cloud-init
@@ -195,7 +195,7 @@ log_info "Installing cloud-init..."
 
 if ! rpm -q cloud-init &>/dev/null; then
     if zypper install -y cloud-init; then
-        log_info "✓ cloud-init installed"
+        log_info "[OK] cloud-init installed"
         ((CONFIGS_APPLIED++))
     else
         log_warn "Failed to install cloud-init"
@@ -227,7 +227,7 @@ system_info:
     shell: /bin/bash
 EOF
     
-    log_info "✓ cloud-init configured for GCP"
+    log_info "[OK] cloud-init configured for GCP"
     ((CONFIGS_APPLIED++))
 fi
 
@@ -241,7 +241,7 @@ if ! systemctl list-unit-files | grep -q "google-cloud-ops-agent"; then
         bash add-google-cloud-ops-agent-repo.sh --also-install
         
         if systemctl list-unit-files | grep -q "google-cloud-ops-agent"; then
-            log_info "✓ Operations Agent installed"
+            log_info "[OK] Operations Agent installed"
             ((CONFIGS_APPLIED++))
         else
             log_warn "Operations Agent installation may have failed"
@@ -268,7 +268,7 @@ EOF
 
 chmod +x /usr/local/bin/gcp-metadata
 
-log_info "✓ GCP metadata helper created"
+log_info "[OK] GCP metadata helper created"
 ((CONFIGS_APPLIED++))
 
 # Verify installations
@@ -278,26 +278,26 @@ COMPONENTS_OK=0
 COMPONENTS_FAIL=0
 
 if rpm -q google-compute-engine &>/dev/null; then
-    log_info "  ✓ GCP guest environment installed"
+    log_info "  [OK] GCP guest environment installed"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ GCP guest environment not found"
+    log_warn "  [FAIL] GCP guest environment not found"
     ((COMPONENTS_FAIL++))
 fi
 
 if command -v gcloud &>/dev/null; then
-    log_info "  ✓ Google Cloud SDK available"
+    log_info "  [OK] Google Cloud SDK available"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ Google Cloud SDK not found"
+    log_warn "  [FAIL] Google Cloud SDK not found"
     ((COMPONENTS_FAIL++))
 fi
 
 if systemctl list-unit-files | grep -q "google-guest-agent"; then
-    log_info "  ✓ Google Guest Agent installed"
+    log_info "  [OK] Google Guest Agent installed"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ Google Guest Agent not found"
+    log_warn "  [FAIL] Google Guest Agent not found"
     ((COMPONENTS_FAIL++))
 fi
 

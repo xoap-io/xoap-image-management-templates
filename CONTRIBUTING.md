@@ -241,15 +241,19 @@ All autounattend files must include:
 #### File Organization
 
 ```PowerShell
-scripts_wip/windows_server_2025_scripts/
-├── aws/                   # AWS-specific scripts
-├── azure/                 # Azure-specific scripts
-├── google/                # Google Cloud scripts
-├── vmware/                # VMware scripts
-├── hyperv/                # Hyper-V scripts
-├── proxmox/               # Proxmox scripts
-├── nutanix/               # Nutanix scripts
-└── xenserver/             # XenServer scripts
+scripts/
+├── windows_server/        # Windows Server (2019/2022/2025) provisioning scripts
+│   ├── aws/               # AWS-specific scripts
+│   ├── azure/             # Azure-specific scripts
+│   ├── google/            # Google Cloud scripts
+│   ├── vmware/            # VMware scripts
+│   ├── hyperv/            # Hyper-V scripts
+│   ├── proxmox/           # Proxmox scripts
+│   ├── nutanix/           # Nutanix scripts
+│   └── xenserver/         # XenServer scripts
+├── w11/                   # Windows 11 provisioning scripts
+├── applications/          # winget/ and chocolatey/ application installers
+├── rhel/  suse/  ubuntu/  # Linux distro provisioning scripts (.sh)
 ```
 
 #### Script Template

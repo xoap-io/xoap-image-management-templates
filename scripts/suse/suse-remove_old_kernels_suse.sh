@@ -133,11 +133,11 @@ for kernel_pkg in $KERNELS_FOR_REMOVAL; do
     
     # Remove kernel and related packages
     if zypper remove -y "$kernel_pkg" 2>&1 | tee /tmp/kernel-remove.log; then
-        log_info "  ✓ Removed $kernel_pkg ($KERNEL_SIZE_MB MB)"
+        log_info "  [OK] Removed $kernel_pkg ($KERNEL_SIZE_MB MB)"
         ((KERNELS_REMOVED++))
         SPACE_FREED=$((SPACE_FREED + KERNEL_SIZE_MB))
     else
-        log_error "  ✗ Failed to remove $kernel_pkg"
+        log_error "  [FAIL] Failed to remove $kernel_pkg"
         cat /tmp/kernel-remove.log | tail -n 10 | while IFS= read -r line; do
             log_error "    $line"
         done
@@ -147,7 +147,7 @@ for kernel_pkg in $KERNELS_FOR_REMOVAL; do
     if [[ -d "/lib/modules/$KERNEL_VERSION" ]]; then
         log_info "  Removing kernel modules for $KERNEL_VERSION..."
         rm -rf "/lib/modules/$KERNEL_VERSION"
-        log_info "  ✓ Kernel modules removed"
+        log_info "  [OK] Kernel modules removed"
     fi
 done
 
@@ -161,7 +161,7 @@ else
 fi
 
 if grub2-mkconfig -o "$GRUB_CFG" &>/dev/null; then
-    log_info "✓ GRUB configuration updated"
+    log_info "[OK] GRUB configuration updated"
 else
     log_warn "Failed to update GRUB configuration"
 fi

@@ -29,36 +29,50 @@ Param (
     [System.String] $Path = "$env:SystemDrive\Apps"
 )
 
-function Log {
-    param([string]$msg)
-    Write-Host "[BASELINE] $msg"
+$script:Component = 'Baseline'
+function Write-Log {
+    param([string]$Message, [ValidateSet('INFO', 'WARN', 'ERROR')][string]$Level = 'INFO')
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
+}
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [Baseline] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
+
+trap {
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 1
 }
 
 #region Functions
 Function Install-RequiredModule {
-    Log "Installing required modules..."
+    Write-Log "Installing required modules..."
     Install-Module -Name Evergreen -AllowClobber -Force
     Install-Module -Name VcRedist -AllowClobber -Force
 }
 
 Function Install-VcRedistributable ($Path) {
-    Log "Installing Microsoft Visual C++ Redistributables..."
+    Write-Log "Installing Microsoft Visual C++ Redistributables..."
     If (!(Test-Path $Path)) { New-Item -Path $Path -ItemType "Directory" -Force -ErrorAction "SilentlyContinue" > $Null }
     $VcList = Get-VcList -Release 2010, 2012, 2013, 2019
     Save-VcRedist -Path $Path -VcList $VcList -Verbose
     Install-VcRedist -VcList $VcList -Path $Path -Verbose
-    Log "VcRedist installation complete."
+    Write-Log "VcRedist installation complete."
 }
 
 Function Install-MicrosoftEdge ($Path) {
-    Log "Installing Microsoft Edge..."
+    Write-Log "Installing Microsoft Edge..."
     $App = Get-EvergreenApp -Name "MicrosoftEdge" | Where-Object { $_.Architecture -eq "x64" -and $_.Channel -eq "Stable" -and $_.Release -eq "Enterprise" } `
     | Sort-Object -Property @{ Expression = { [System.Version]$_.Version }; Descending = $true } | Select-Object -First 1
     If ($App) {
-        Log "Downloading Microsoft Edge..."
+        Write-Log "Downloading Microsoft Edge..."
         If (!(Test-Path $Path)) { New-Item -Path $Path -ItemType "Directory" -Force -ErrorAction "SilentlyContinue" > $Null }
         $OutFile = Save-EvergreenApp -InputObject $App -Path $Path -WarningAction "SilentlyContinue"
-        Log "Installing Microsoft Edge..."
+        Write-Log "Installing Microsoft Edge..."
         try {
             $params = @{
                 FilePath     = "$env:SystemRoot\System32\msiexec.exe"
@@ -69,9 +83,9 @@ Function Install-MicrosoftEdge ($Path) {
             }
             Start-Process @params
         } catch {
-            Log "ERR: Failed to install Microsoft Edge. $_"
+            Write-Log "Failed to install Microsoft Edge. $_" -Level ERROR
         }
-        Log "Configuring post-install preferences..."
+        Write-Log "Configuring post-install preferences..."
         $prefs = @{
             "homepage"               = "edge://newtab"
             "homepage_is_newtabpage" = $false
@@ -96,19 +110,19 @@ Function Install-MicrosoftEdge ($Path) {
             try {
                 Get-Service -Name $service | Set-Service -StartupType "Disabled"
             } catch {
-                Log "Warning: Could not disable service $service. $_"
+                Write-Log "Could not disable service $service. $_" -Level WARN
             }
         }
         ForEach ($task in (Get-ScheduledTask -TaskName *Edge*)) {
             try {
                 Unregister-ScheduledTask -TaskName $task.TaskName -Confirm:$False -ErrorAction SilentlyContinue
             } catch {
-                Log "Warning: Could not unregister scheduled task $($task.TaskName). $_"
+                Write-Log "Could not unregister scheduled task $($task.TaskName). $_" -Level WARN
             }
         }
-        Log "Microsoft Edge installation and configuration complete."
+        Write-Log "Microsoft Edge installation and configuration complete."
     } Else {
-        Log "Failed to retrieve Microsoft Edge."
+        Write-Log "Failed to retrieve Microsoft Edge." -Level WARN
     }
 }
 #endregion Functions
@@ -117,13 +131,16 @@ Function Install-MicrosoftEdge ($Path) {
 $VerbosePreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
 
+$startTime = Get-Date
+Write-Log "===== install_server_baseline_apps starting ====="
+
 If (!(Test-Path $Path)) { New-Item -Path $Path -Type Directory -Force -ErrorAction SilentlyContinue }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 New-Item -Path $Path -ItemType "Directory" -Force -ErrorAction "SilentlyContinue" > $Null
 
 # Trust the PSGallery for modules
 If (Get-PSRepository | Where-Object { $_.Name -eq "PSGallery" -and $_.InstallationPolicy -ne "Trusted" }) {
-    Log "Trusting the repository: PSGallery"
+    Write-Log "Trusting the repository: PSGallery"
     Install-PackageProvider -Name "NuGet" -MinimumVersion 2.8.5.208 -Force
     Set-PSRepository -Name "PSGallery" -InstallationPolicy "Trusted"
 }
@@ -131,5 +148,7 @@ If (Get-PSRepository | Where-Object { $_.Name -eq "PSGallery" -and $_.Installati
 Install-RequiredModule
 Install-VcRedistributable -Path "$Path\VcRedist"
 Install-MicrosoftEdge -Path "$Path\Edge"
-Log "Complete: $($MyInvocation.MyCommand)."
+Write-Log "===== install_server_baseline_apps complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+try { Stop-Transcript | Out-Null } catch {}
+exit 0
 #endregion

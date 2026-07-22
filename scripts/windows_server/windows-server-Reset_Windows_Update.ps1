@@ -20,13 +20,24 @@
     Resets Windows Update components and cache
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
 Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
+
+$script:Component = 'WindowsUpdate'
+function Write-Log {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
+}
 
 # Setup local file logging to C:\xoap-logs
 try {
@@ -40,28 +51,21 @@ try {
     $LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
 
     Start-Transcript -Path $LogFile -Append | Out-Null
-    Write-Host "Logging to: $LogFile"
 } catch {
-    Write-Warning "Failed to start transcript logging to C:\xoap-logs: $($_.Exception.Message)"
-}
-
-# Simple logging function
-function Write-Log {
-    param($Message)
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Log "Transcript unavailable: $($_.Exception.Message)" -Level WARN
 }
 
 trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+    Write-Log "Critical error: $_" -Level ERROR
+    ($_.ScriptStackTrace -split '\r?\n') | ForEach-Object { Write-Log "STACK: $_" -Level ERROR }
     try { Stop-Transcript | Out-Null } catch {}
-    Exit 1
+    exit 1
 }
 
+$started = Get-Date
+
 try {
-    Write-Log 'Starting Windows Update reset'
+    Write-Log '===== Reset_Windows_Update starting ====='
 
     Write-Log 'Stopping Windows Update services...'
     $services = @('wuauserv', 'cryptSvc', 'bits', 'msiserver')
@@ -71,7 +75,7 @@ try {
             Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
             Write-Log "Successfully stopped: $service"
         } catch {
-            Write-Log "Warning: Could not stop service $service`: $($_.Exception.Message)"
+            Write-Log "Could not stop service $service`: $($_.Exception.Message)" -Level WARN
         }
     }
 
@@ -89,7 +93,7 @@ try {
                 Write-Log "Successfully cleared: $path"
             }
         } catch {
-            Write-Log "Warning: Could not clear cache $path`: $($_.Exception.Message)"
+            Write-Log "Could not clear cache $path`: $($_.Exception.Message)" -Level WARN
         }
     }
 
@@ -100,11 +104,13 @@ try {
             Start-Service -Name $service -ErrorAction SilentlyContinue
             Write-Log "Successfully started: $service"
         } catch {
-            Write-Log "Warning: Could not start service $service`: $($_.Exception.Message)"
+            Write-Log "Could not start service $service`: $($_.Exception.Message)" -Level WARN
         }
     }
 
-    Write-Log "Windows Update reset completed successfully"
+    Write-Log "===== Reset_Windows_Update complete in $([int]((Get-Date) - $started).TotalSeconds)s ====="
 } finally {
     try { Stop-Transcript | Out-Null } catch {}
 }
+
+exit 0

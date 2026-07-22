@@ -20,7 +20,7 @@
     Enables and enforces TLS 1.2 protocol
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -29,24 +29,21 @@ $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 
 # Setup local file logging to C:\xoap-logs
+$LogDir = 'C:\xoap-logs'
 try {
-    $LogDir = 'C:\xoap-logs'
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    $scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
-    Start-Transcript -Path $LogFile -Append | Out-Null
-    Write-Host "Logging to: $LogFile"
-} catch {
-    Write-Warning "Failed to start transcript logging to C:\xoap-logs: $($_.Exception.Message)"
-}
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [TLS] Transcript unavailable: $($_.Exception.Message)" }
 
 function Write-Log {
-    param($Message)
+    param(
+        $Message,
+        [ValidateSet('INFO','WARN','ERROR')][string]$Level = 'INFO'
+    )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Host "[$timestamp] [$Level] [TLS] $Message"
 }
 
 trap {
@@ -58,6 +55,8 @@ trap {
 }
 
 try {
+    Write-Log '===== Enable_TLS1_2 starting ====='
+    $startTime = Get-Date
     Write-Log 'Configuring TLS 1.2 for client and server...'
 
     $basePath = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2'
@@ -74,6 +73,8 @@ try {
     }
 
     Write-Log 'TLS 1.2 configuration completed successfully.'
+    Write-Log "===== Enable_TLS1_2 complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
 } finally {
     try { Stop-Transcript | Out-Null } catch {
         Write-Log "Failed to stop transcript logging: $($_.Exception.Message)"

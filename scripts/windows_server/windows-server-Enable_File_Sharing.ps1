@@ -20,7 +20,7 @@
     Enables file and printer sharing firewall rules
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -44,26 +44,35 @@ try {
     $LogFile = $null
 }
 
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
-    param($Message)
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Host "[$timestamp] [$Level] [FileSharing] $Message"
 }
 
 trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+    Write-Log "ERROR: $_" -Level ERROR
+    Write-Log "ERROR: $($_.ScriptStackTrace)" -Level ERROR
+    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())" -Level ERROR
     try { Stop-Transcript | Out-Null } catch {}
-    Exit 1
+    exit 1
 }
 
 try {
-    Write-Log 'Enabling file and printer sharing firewall rules...'
+    $startTime = Get-Date
+    Write-Log '===== Enable_File_Sharing starting ====='
     Enable-NetFirewallRule -DisplayGroup "File and Printer Sharing"
-    Write-Log 'File and printer sharing enabled successfully.'
+    Write-Log "===== Enable_File_Sharing complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 } finally {
     try { Stop-Transcript | Out-Null } catch {
-        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)"
+        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)" -Level WARN
     }
 }
+
+exit 0

@@ -72,28 +72,17 @@ $script:ConfigurationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+# Leveled logging function (stdout is the state channel)
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+    Write-Host "[$timestamp] [$Level] [RemoteMgmt] $Message"
 }
 
 function Test-IsAdministrator {
@@ -108,15 +97,15 @@ function Test-IsAdministrator {
 
 function Enable-WinRMService {
     if (-not $EnableWinRM) {
-        Write-LogMessage "Skipping WinRM configuration" -Level Info
+        Write-Log "Skipping WinRM configuration" -Level INFO
         return $false
     }
     
-    Write-LogMessage "Configuring Windows Remote Management (WinRM)..." -Level Info
+    Write-Log "Configuring Windows Remote Management (WinRM)..." -Level INFO
     
     try {
         # Quick configuration
-        Write-LogMessage "Running WinRM quick configuration..." -Level Info
+        Write-Log "Running WinRM quick configuration..." -Level INFO
         winrm quickconfig -quiet 2>&1 | Out-Null
         
         # Set service to automatic
@@ -128,21 +117,21 @@ function Enable-WinRMService {
         # Verify service is running
         $service = Get-Service -Name WinRM
         if ($service.Status -eq 'Running') {
-            Write-LogMessage "WinRM service started successfully" -Level Success
+            Write-Log "WinRM service started successfully" -Level INFO
         }
         
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error enabling WinRM: $($_.Exception.Message)" -Level Error
+        Write-Log "Error enabling WinRM: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Set-WinRMConfiguration {
-    Write-LogMessage "Configuring WinRM settings..." -Level Info
+    Write-Log "Configuring WinRM settings..." -Level INFO
     
     try {
         # Configure WinRM service
@@ -162,19 +151,19 @@ function Set-WinRMConfiguration {
         winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="1024"}' 2>&1 | Out-Null
         winrm set winrm/config/winrs '@{MaxShellsPerUser="30"}' 2>&1 | Out-Null
         
-        Write-LogMessage "WinRM configuration applied" -Level Success
+        Write-Log "WinRM configuration applied" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring WinRM: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring WinRM: $($_.Exception.Message)" -Level WARN
         $script:ConfigurationsFailed++
         return $false
     }
 }
 
 function Set-WinRMListeners {
-    Write-LogMessage "Configuring WinRM listeners..." -Level Info
+    Write-Log "Configuring WinRM listeners..." -Level INFO
     
     try {
         # Get existing listeners
@@ -182,26 +171,26 @@ function Set-WinRMListeners {
         
         # Configure HTTP listener
         if (-not $DisableWinRMHTTP) {
-            Write-LogMessage "Ensuring HTTP listener is configured..." -Level Info
+            Write-Log "Ensuring HTTP listener is configured..." -Level INFO
             
             $httpListener = winrm enumerate winrm/config/listener | Select-String -Pattern "Transport = HTTP"
             if (-not $httpListener) {
                 winrm create winrm/config/listener?Address=*+Transport=HTTP 2>&1 | Out-Null
-                Write-LogMessage "HTTP listener created" -Level Success
+                Write-Log "HTTP listener created" -Level INFO
             }
             else {
-                Write-LogMessage "HTTP listener already exists" -Level Info
+                Write-Log "HTTP listener already exists" -Level INFO
             }
         }
         else {
-            Write-LogMessage "HTTP listener disabled (HTTPS only mode)" -Level Warning
+            Write-Log "HTTP listener disabled (HTTPS only mode)" -Level WARN
             # Remove HTTP listener
             winrm delete winrm/config/listener?Address=*+Transport=HTTP 2>&1 | Out-Null
         }
         
         # Configure HTTPS listener if requested
         if ($SetupHTTPS) {
-            Write-LogMessage "Setting up HTTPS listener..." -Level Info
+            Write-Log "Setting up HTTPS listener..." -Level INFO
             
             # Check for existing certificate
             $cert = Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object {
@@ -210,18 +199,18 @@ function Set-WinRMListeners {
             
             if ($cert) {
                 $thumbprint = $cert.Thumbprint
-                Write-LogMessage "Using certificate: $thumbprint" -Level Info
+                Write-Log "Using certificate: $thumbprint" -Level INFO
                 
                 # Create HTTPS listener
                 $httpsListener = winrm enumerate winrm/config/listener | Select-String -Pattern "Transport = HTTPS"
                 if (-not $httpsListener) {
                     winrm create winrm/config/listener?Address=*+Transport=HTTPS "@{Hostname=`"$env:COMPUTERNAME`"; CertificateThumbprint=`"$thumbprint`"}" 2>&1 | Out-Null
-                    Write-LogMessage "HTTPS listener created" -Level Success
+                    Write-Log "HTTPS listener created" -Level INFO
                 }
             }
             else {
-                Write-LogMessage "No suitable certificate found for HTTPS listener" -Level Warning
-                Write-LogMessage "Generate a certificate and re-run with -SetupHTTPS" -Level Info
+                Write-Log "No suitable certificate found for HTTPS listener" -Level WARN
+                Write-Log "Generate a certificate and re-run with -SetupHTTPS" -Level INFO
             }
         }
         
@@ -229,7 +218,7 @@ function Set-WinRMListeners {
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring listeners: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring listeners: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -240,30 +229,30 @@ function Set-WinRMListeners {
 
 function Enable-PSRemotingConfiguration {
     if (-not $EnablePSRemoting) {
-        Write-LogMessage "Skipping PowerShell remoting configuration" -Level Info
+        Write-Log "Skipping PowerShell remoting configuration" -Level INFO
         return $false
     }
     
-    Write-LogMessage "Configuring PowerShell remoting..." -Level Info
+    Write-Log "Configuring PowerShell remoting..." -Level INFO
     
     try {
         # Enable PS Remoting
         Enable-PSRemoting -Force -SkipNetworkProfileCheck 2>&1 | Out-Null
         
-        Write-LogMessage "PowerShell remoting enabled" -Level Success
+        Write-Log "PowerShell remoting enabled" -Level INFO
         
         # Configure session configuration
         Set-PSSessionConfiguration -Name Microsoft.PowerShell -ShowSecurityDescriptorUI -Force -ErrorAction SilentlyContinue
         
         # Set execution policy
         Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
-        Write-LogMessage "Execution policy set to RemoteSigned" -Level Info
+        Write-Log "Execution policy set to RemoteSigned" -Level INFO
         
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error enabling PS remoting: $($_.Exception.Message)" -Level Error
+        Write-Log "Error enabling PS remoting: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
@@ -275,11 +264,11 @@ function Enable-PSRemotingConfiguration {
 
 function Enable-RemoteDesktop {
     if (-not $EnableRDP) {
-        Write-LogMessage "Skipping Remote Desktop configuration" -Level Info
+        Write-Log "Skipping Remote Desktop configuration" -Level INFO
         return $false
     }
     
-    Write-LogMessage "Configuring Remote Desktop..." -Level Info
+    Write-Log "Configuring Remote Desktop..." -Level INFO
     
     try {
         # Enable RDP
@@ -291,12 +280,12 @@ function Enable-RemoteDesktop {
         # Allow connections from computers running any version of RDP
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'SecurityLayer' -Value 1 -Force
         
-        Write-LogMessage "Remote Desktop enabled with NLA" -Level Success
+        Write-Log "Remote Desktop enabled with NLA" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error enabling RDP: $($_.Exception.Message)" -Level Error
+        Write-Log "Error enabling RDP: $($_.Exception.Message)" -Level ERROR
         $script:ConfigurationsFailed++
         return $false
     }
@@ -308,23 +297,23 @@ function Enable-RemoteDesktop {
 
 function Enable-ServerManagerRemoting {
     if (-not $EnableServerManager) {
-        Write-LogMessage "Skipping Server Manager remote management" -Level Info
+        Write-Log "Skipping Server Manager remote management" -Level INFO
         return $false
     }
     
-    Write-LogMessage "Configuring Server Manager remote management..." -Level Info
+    Write-Log "Configuring Server Manager remote management..." -Level INFO
     
     try {
         # Enable Server Manager remote management
         Configure-SMRemoting.exe -Enable -Force 2>&1 | Out-Null
         
-        Write-LogMessage "Server Manager remote management enabled" -Level Success
+        Write-Log "Server Manager remote management enabled" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error enabling Server Manager remoting: $($_.Exception.Message)" -Level Warning
-        Write-LogMessage "Server Manager remoting may not be available on this version" -Level Info
+        Write-Log "Error enabling Server Manager remoting: $($_.Exception.Message)" -Level WARN
+        Write-Log "Server Manager remoting may not be available on this version" -Level INFO
         return $false
     }
 }
@@ -335,16 +324,16 @@ function Enable-ServerManagerRemoting {
 
 function Set-FirewallRules {
     if (-not $ConfigureFirewall) {
-        Write-LogMessage "Skipping firewall configuration" -Level Info
+        Write-Log "Skipping firewall configuration" -Level INFO
         return $false
     }
     
-    Write-LogMessage "Configuring Windows Firewall rules..." -Level Info
+    Write-Log "Configuring Windows Firewall rules..." -Level INFO
     
     try {
         # Enable WinRM firewall rules
         if ($EnableWinRM) {
-            Write-LogMessage "Enabling WinRM firewall rules..." -Level Info
+            Write-Log "Enabling WinRM firewall rules..." -Level INFO
             
             Enable-NetFirewallRule -DisplayGroup "Windows Remote Management" -ErrorAction SilentlyContinue
             
@@ -359,7 +348,7 @@ function Set-FirewallRules {
                     -Profile Domain, Private `
                     -Description "Allow WinRM HTTP" | Out-Null
                 
-                Write-LogMessage "Created WinRM HTTP firewall rule" -Level Info
+                Write-Log "Created WinRM HTTP firewall rule" -Level INFO
             }
             
             # HTTPS rule
@@ -374,20 +363,20 @@ function Set-FirewallRules {
                         -Profile Domain, Private `
                         -Description "Allow WinRM HTTPS" | Out-Null
                     
-                    Write-LogMessage "Created WinRM HTTPS firewall rule" -Level Info
+                    Write-Log "Created WinRM HTTPS firewall rule" -Level INFO
                 }
             }
         }
         
         # Enable RDP firewall rules
         if ($EnableRDP) {
-            Write-LogMessage "Enabling RDP firewall rules..." -Level Info
+            Write-Log "Enabling RDP firewall rules..." -Level INFO
             Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
         }
         
         # Enable Server Manager firewall rules
         if ($EnableServerManager) {
-            Write-LogMessage "Enabling Server Manager firewall rules..." -Level Info
+            Write-Log "Enabling Server Manager firewall rules..." -Level INFO
             Enable-NetFirewallRule -DisplayGroup "Remote Event Log Management" -ErrorAction SilentlyContinue
             Enable-NetFirewallRule -DisplayGroup "Remote Service Management" -ErrorAction SilentlyContinue
             Enable-NetFirewallRule -DisplayGroup "Remote Volume Management" -ErrorAction SilentlyContinue
@@ -397,22 +386,22 @@ function Set-FirewallRules {
         
         # Apply network restrictions if specified
         if ($AllowedNetworks.Count -gt 0) {
-            Write-LogMessage "Applying network restrictions..." -Level Info
+            Write-Log "Applying network restrictions..." -Level INFO
             
             foreach ($network in $AllowedNetworks) {
-                Write-LogMessage "  Allowed network: $network" -Level Info
+                Write-Log "  Allowed network: $network" -Level INFO
             }
             
             # Note: This requires creating custom rules with RemoteAddress filters
             # For production, use more granular control
         }
         
-        Write-LogMessage "Firewall rules configured" -Level Success
+        Write-Log "Firewall rules configured" -Level INFO
         $script:ConfigurationsApplied++
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring firewall: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring firewall: $($_.Exception.Message)" -Level WARN
         $script:ConfigurationsFailed++
         return $false
     }
@@ -423,26 +412,26 @@ function Set-FirewallRules {
 #region Verification
 
 function Test-RemoteManagementConfiguration {
-    Write-LogMessage "Verifying remote management configuration..." -Level Info
+    Write-Log "Verifying remote management configuration..." -Level INFO
     
     try {
         # Check WinRM
         if ($EnableWinRM) {
             $winrmService = Get-Service -Name WinRM
-            Write-LogMessage "  WinRM Service: $($winrmService.Status) ($($winrmService.StartType))" -Level Info
+            Write-Log "  WinRM Service: $($winrmService.Status) ($($winrmService.StartType))" -Level INFO
             
             $listeners = winrm enumerate winrm/config/listener 2>&1
-            Write-LogMessage "  WinRM Listeners: Configured" -Level Info
+            Write-Log "  WinRM Listeners: Configured" -Level INFO
         }
         
         # Check PowerShell remoting
         if ($EnablePSRemoting) {
             try {
                 $testSession = Test-WSMan -ComputerName localhost -ErrorAction Stop
-                Write-LogMessage "  PowerShell Remoting: Working" -Level Info
+                Write-Log "  PowerShell Remoting: Working" -Level INFO
             }
             catch {
-                Write-LogMessage "  PowerShell Remoting: Not responding" -Level Warning
+                Write-Log "  PowerShell Remoting: Not responding" -Level WARN
             }
         }
         
@@ -450,30 +439,30 @@ function Test-RemoteManagementConfiguration {
         if ($EnableRDP) {
             $rdpEnabled = Get-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections'
             if ($rdpEnabled.fDenyTSConnections -eq 0) {
-                Write-LogMessage "  Remote Desktop: Enabled" -Level Info
+                Write-Log "  Remote Desktop: Enabled" -Level INFO
             }
             else {
-                Write-LogMessage "  Remote Desktop: Disabled" -Level Warning
+                Write-Log "  Remote Desktop: Disabled" -Level WARN
             }
         }
         
         # Check firewall rules
         if ($ConfigureFirewall) {
             $winrmRules = Get-NetFirewallRule -DisplayGroup "Windows Remote Management" | Where-Object { $_.Enabled -eq $true }
-            Write-LogMessage "  WinRM Firewall Rules: $($winrmRules.Count) enabled" -Level Info
+            Write-Log "  WinRM Firewall Rules: $($winrmRules.Count) enabled" -Level INFO
         }
         
-        Write-LogMessage "Verification completed" -Level Success
+        Write-Log "Verification completed" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error during verification: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error during verification: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
 
 function Get-RemoteManagementReport {
-    Write-LogMessage "Generating remote management configuration report..." -Level Info
+    Write-Log "Generating remote management configuration report..." -Level INFO
     
     try {
         $reportFile = Join-Path $LogDir "remote-mgmt-config-$timestamp.txt"
@@ -535,11 +524,11 @@ function Get-RemoteManagementReport {
         
         $report -join "`n" | Set-Content -Path $reportFile -Force
         
-        Write-LogMessage "Configuration report saved to: $reportFile" -Level Success
+        Write-Log "Configuration report saved to: $reportFile" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error generating report: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error generating report: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
@@ -549,19 +538,23 @@ function Get-RemoteManagementReport {
 #region Main Execution
 
 function Main {
+    # Setup local file logging to C:\xoap-logs (transcript captures all host output)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+    } catch {
+        Write-Host "[WARN] Failed to start transcript logging to $LogDir : $($_.Exception.Message)"
+    }
+
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Remote Management Configuration" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Configure_Remote_Management starting ====="
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
@@ -585,25 +578,16 @@ function Main {
     Get-RemoteManagementReport | Out-Null
     
     # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configuration Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Configurations Applied: $script:ConfigurationsApplied" -Level Info
-    Write-LogMessage "Configuration Failures: $script:ConfigurationsFailed" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
+    $duration = ((Get-Date) - $scriptStartTime).TotalSeconds
+
+    Write-Log "Test connection: Test-WSMan -ComputerName $env:COMPUTERNAME"
+
     if ($script:ConfigurationsFailed -eq 0) {
-        Write-LogMessage "Remote management configuration completed successfully!" -Level Success
-        Write-LogMessage "Test connection: Test-WSMan -ComputerName $env:COMPUTERNAME" -Level Info
+        Write-Log "===== Configure_Remote_Management complete in $([int]$duration)s; applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) ====="
         exit 0
     }
     else {
-        Write-LogMessage "Configuration completed with $script:ConfigurationsFailed errors" -Level Warning
+        Write-Log "===== Configure_Remote_Management complete in $([int]$duration)s; applied=$($script:ConfigurationsApplied) failed=$($script:ConfigurationsFailed) =====" -Level WARN
         exit 1
     }
 }
@@ -613,9 +597,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

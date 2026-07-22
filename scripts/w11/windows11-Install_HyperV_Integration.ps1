@@ -23,11 +23,6 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$LogDir = 'C:\xoap-logs'
-$scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
-
 function Write-Log {
     param(
         [Parameter(Mandatory)]
@@ -35,7 +30,7 @@ function Write-Log {
         [ValidateSet('Info', 'Warning', 'Error')]
         [string]$Level = 'Info'
     )
-    
+
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     $prefix = switch ($Level) {
         'Warning' { 'WARN' }
@@ -44,28 +39,28 @@ function Write-Log {
     }
     $logMessage = "[$timestamp] [$prefix] [Hyper-V] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [Hyper-V] Transcript unavailable: $($_.Exception.Message)" }
 
 trap {
     Write-Log "Critical error: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
     $startTime = Get-Date
-    
-    Write-Log "==================================================="
+    Write-Log "===== Install_HyperV_Integration starting ====="
     Write-Log "Hyper-V Integration Services Configuration"
-    Write-Log "==================================================="
-    
+
     # Detect Hyper-V
     Write-Log "Detecting virtualization platform..."
     $isHyperV = $false
@@ -80,7 +75,7 @@ try {
         
         if ($manufacturer -match 'Microsoft' -and $model -match 'Virtual') {
             $isHyperV = $true
-            Write-Log "✓ Running on Hyper-V"
+            Write-Log "[OK] Running on Hyper-V"
         } else {
             Write-Log "Not running on Hyper-V" -Level Warning
             Write-Log "Continuing configuration anyway..."
@@ -106,7 +101,7 @@ try {
     foreach ($svcName in $integrationServices) {
         $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
         if ($svc) {
-            Write-Log "  ✓ $svcName : $($svc.Status)"
+            Write-Log "  [OK] $svcName : $($svc.Status)"
             
             if ($svc.StartType -ne 'Automatic') {
                 Set-Service -Name $svcName -StartupType Automatic
@@ -120,7 +115,7 @@ try {
             
             $servicesConfigured++
         } else {
-            Write-Log "  ✗ $svcName not found" -Level Warning
+            Write-Log "  [FAIL] $svcName not found" -Level Warning
         }
     }
     
@@ -133,7 +128,7 @@ try {
         }
         
         Set-ItemProperty -Path $rdpPath -Name 'OSVersion' -Value ([System.Environment]::OSVersion.Version.ToString()) -Type String
-        Write-Log "✓ Enhanced Session Mode registry configured"
+        Write-Log "[OK] Enhanced Session Mode registry configured"
     } catch {
         Write-Log "Could not configure Enhanced Session Mode: $($_.Exception.Message)" -Level Warning
     }
@@ -145,7 +140,7 @@ try {
         
         # Enable RDP in firewall
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
-        Write-Log "✓ Remote Desktop enabled"
+        Write-Log "[OK] Remote Desktop enabled"
     } catch {
         Write-Log "Could not enable Remote Desktop: $($_.Exception.Message)" -Level Warning
     }
@@ -158,32 +153,25 @@ try {
         # $pagefile = Get-WmiObject -Query "SELECT * FROM Win32_PageFileSetting WHERE Name='C:\\pagefile.sys'"
         # if ($pagefile) {
         #     $pagefile.Delete()
-        #     Write-Log "✓ Removed pagefile for Dynamic Memory optimization"
+        #     Write-Log "[OK] Removed pagefile for Dynamic Memory optimization"
         # }
         
-        Write-Log "✓ System ready for Dynamic Memory"
+        Write-Log "[OK] System ready for Dynamic Memory"
     } catch {
         Write-Log "Could not configure Dynamic Memory settings: $($_.Exception.Message)" -Level Warning
     }
     
     # Summary
-    $endTime = Get-Date
-    $duration = ($endTime - $startTime).TotalSeconds
-    
-    Write-Log ""
-    Write-Log "==================================================="
-    Write-Log "Hyper-V Integration Services Summary"
-    Write-Log "==================================================="
     Write-Log "Platform: $(if ($isHyperV) { 'Hyper-V' } else { 'Non-Hyper-V' })"
     Write-Log "Integration Services configured: $servicesConfigured"
     Write-Log "Enhanced Session Mode: Configured"
     Write-Log "Remote Desktop: Enabled"
-    Write-Log "Execution time: $([math]::Round($duration, 2))s"
-    Write-Log "==================================================="
-    
+    Write-Log "===== Install_HyperV_Integration complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Script execution failed: $_" -Level Error
     exit 1
 } finally {
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
 }

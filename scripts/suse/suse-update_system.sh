@@ -74,13 +74,13 @@ log_info "Current kernel: $CURRENT_KERNEL"
 log_info "Backing up package list..."
 
 rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > /tmp/packages-before-update.txt
-log_info "✓ Package list backed up to /tmp/packages-before-update.txt"
+log_info "[OK] Package list backed up to /tmp/packages-before-update.txt"
 
 # Refresh repositories
 log_info "Refreshing package repositories..."
 
 if zypper refresh 2>&1 | tee /tmp/zypper-refresh.log; then
-    log_info "✓ Repositories refreshed"
+    log_info "[OK] Repositories refreshed"
 else
     log_error "Failed to refresh repositories"
     cat /tmp/zypper-refresh.log
@@ -118,7 +118,7 @@ fi
 log_info "Executing: $UPDATE_CMD"
 
 if $UPDATE_CMD 2>&1 | tee /tmp/update-output.log; then
-    log_info "✓ System update completed"
+    log_info "[OK] System update completed"
 else
     log_error "System update failed"
     tail -n 20 /tmp/update-output.log | while IFS= read -r line; do

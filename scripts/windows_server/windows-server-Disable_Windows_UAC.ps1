@@ -20,7 +20,7 @@
     Disables User Account Control
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 
 #>
 
@@ -44,23 +44,29 @@ try {
     $LogFile = $null
 }
 
-# Simple logging function
+# Leveled logging function (stdout is the state channel)
 function Write-Log {
-    param($Message)
+    param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[$timestamp] $Message"
+    Write-Host "[$timestamp] [$Level] [UAC] $Message"
 }
 
 trap {
-    Write-Log "ERROR: $_"
-    Write-Log "ERROR: $($_.ScriptStackTrace)"
-    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())"
+    Write-Log "ERROR: $_" -Level ERROR
+    Write-Log "ERROR: $($_.ScriptStackTrace)" -Level ERROR
+    Write-Log "ERROR EXCEPTION: $($_.Exception.ToString())" -Level ERROR
     try { Stop-Transcript | Out-Null } catch {}
-    Exit 1
+    exit 1
 }
 
 try {
-    Write-Log 'Disabling Windows UAC...'
+    $startTime = Get-Date
+    Write-Log '===== Disable_Windows_UAC starting ====='
 
     $regPath = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System'
     $settings = @{
@@ -79,9 +85,11 @@ try {
         }
     }
 
-    Write-Log 'Windows UAC disabled successfully.'
+    Write-Log "===== Disable_Windows_UAC complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
 } finally {
     try { Stop-Transcript | Out-Null } catch {
-        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)"
+        Write-Log "Failed to stop transcript logging: $($_.Exception.Message)" -Level WARN
     }
 }
+
+exit 0

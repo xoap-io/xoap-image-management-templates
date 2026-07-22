@@ -30,7 +30,7 @@
     Applies network and storage optimizations
 
 .LINK
-    https://github.com/xoap-io/xoap-packer-templates
+    https://github.com/xoap-io/xoap-image-management-templates
 #>
 
 [CmdletBinding()]
@@ -45,9 +45,12 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $LogDir = 'C:\xoap-logs'
-$scriptName = 'vmware-optimize'
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [VMOpt] Transcript unavailable: $($_.Exception.Message)" }
 
 $script:OptimizationsApplied = 0
 $script:OptimizationsFailed = 0
@@ -56,23 +59,18 @@ function Write-Log {
     param(
         [Parameter(Mandatory)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
     
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    $logMessage = "[$timestamp] [$prefix] [VMOpt] $Message"
+    $logMessage = "[$timestamp] [$Level] [VMOpt] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
-    Write-Log "Critical error: $_" -Level Error
+    Write-Log "Critical error: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
@@ -82,6 +80,7 @@ try {
     }
     
     $startTime = Get-Date
+    Write-Log "===== Optimize_VMware_Performance starting ====="
     
     Write-Log "========================================================="
     Write-Log "VMware vSphere Performance Optimization"
@@ -90,14 +89,14 @@ try {
     # Verify VMware Tools
     $vmTools = Get-Service -Name 'VMTools' -ErrorAction SilentlyContinue
     if ($vmTools) {
-        Write-Log "✓ VMware Tools: $($vmTools.Status)"
+        Write-Log "[OK] VMware Tools: $($vmTools.Status)"
         if ($vmTools.Status -ne 'Running') {
             Start-Service -Name 'VMTools'
-            Write-Log "✓ Started VMware Tools"
+            Write-Log "[OK] Started VMware Tools"
         }
     }
     else {
-        Write-Log "VMware Tools not found" -Level Warning
+        Write-Log "VMware Tools not found" -Level WARN
     }
     
     # Configure VMware Tools time synchronization
@@ -109,11 +108,11 @@ try {
         if (Test-Path $vmtoolsdPath) {
             try {
                 & $vmtoolsdPath timesync disable
-                Write-Log "✓ Disabled VMware Tools time synchronization"
+                Write-Log "[OK] Disabled VMware Tools time synchronization"
                 $script:OptimizationsApplied++
             }
             catch {
-                Write-Log "Failed to disable time sync" -Level Warning
+                Write-Log "Failed to disable time sync" -Level WARN
                 $script:OptimizationsFailed++
             }
         }
@@ -141,11 +140,11 @@ try {
                 # Enable Jumbo Frames
                 Set-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName "Jumbo Packet" -DisplayValue "9014" -ErrorAction SilentlyContinue
                 
-                Write-Log "✓ Optimized: $($adapter.Name)"
+                Write-Log "[OK] Optimized: $($adapter.Name)"
                 $script:OptimizationsApplied++
             }
             catch {
-                Write-Log "Failed to optimize adapter" -Level Warning
+                Write-Log "Failed to optimize adapter" -Level WARN
                 $script:OptimizationsFailed++
             }
         }
@@ -160,17 +159,17 @@ try {
             # Disable defragmentation
             Get-ScheduledTask -TaskName "*defrag*" -ErrorAction SilentlyContinue | 
                 Disable-ScheduledTask -ErrorAction SilentlyContinue
-            Write-Log "✓ Disabled defragmentation"
+            Write-Log "[OK] Disabled defragmentation"
             
             # Disk timeout
             $diskPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Disk'
             Set-ItemProperty -Path $diskPath -Name 'TimeOutValue' -Value 60 -Type DWord -Force
-            Write-Log "✓ Set disk timeout to 60s"
+            Write-Log "[OK] Set disk timeout to 60s"
             
             $script:OptimizationsApplied++
         }
         catch {
-            Write-Log "Storage optimization failed" -Level Warning
+            Write-Log "Storage optimization failed" -Level WARN
             $script:OptimizationsFailed++
         }
     }
@@ -183,7 +182,7 @@ try {
     $tcpipPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters'
     Set-ItemProperty -Path $tcpipPath -Name 'TcpTimedWaitDelay' -Value 30 -Type DWord -Force
     Set-ItemProperty -Path $tcpipPath -Name 'MaxUserPort' -Value 65534 -Type DWord -Force
-    Write-Log "✓ Applied TCP/IP optimizations"
+    Write-Log "[OK] Applied TCP/IP optimizations"
     $script:OptimizationsApplied++
     
     # Power plan
@@ -194,19 +193,19 @@ try {
         powercfg /setactive $highPerf
         powercfg /change standby-timeout-ac 0
         powercfg /change standby-timeout-dc 0
-        Write-Log "✓ Set High Performance power plan"
+        Write-Log "[OK] Set High Performance power plan"
         $script:OptimizationsApplied++
     }
     
     # Disable hibernation
     powercfg /hibernate off
-    Write-Log "✓ Disabled hibernation"
+    Write-Log "[OK] Disabled hibernation"
     $script:OptimizationsApplied++
     
     # Memory optimization
     $mmPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
     Set-ItemProperty -Path $mmPath -Name 'DisablePagingExecutive' -Value 1 -Type DWord -Force
-    Write-Log "✓ Disabled paging executive"
+    Write-Log "[OK] Disabled paging executive"
     $script:OptimizationsApplied++
     
     $endTime = Get-Date
@@ -221,7 +220,11 @@ try {
     Write-Log "Execution time: $([math]::Round($duration, 2))s"
     Write-Log "========================================================="
     
+    Write-Log "===== Optimize_VMware_Performance complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 } catch {
-    Write-Log "Optimization failed: $_" -Level Error
+    Write-Log "Optimization failed: $_" -Level ERROR
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }

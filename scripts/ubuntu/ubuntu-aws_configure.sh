@@ -62,7 +62,7 @@ log_info "Installing cloud-init..."
 
 if ! dpkg -l | grep -q "^ii.*cloud-init"; then
     if DEBIAN_FRONTEND=noninteractive apt-get install -y cloud-init; then
-        log_info "✓ cloud-init installed"
+        log_info "[OK] cloud-init installed"
         ((CONFIGS_APPLIED++))
     else
         log_error "Failed to install cloud-init"
@@ -102,7 +102,7 @@ system_info:
     shell: /bin/bash
 EOF
 
-log_info "✓ cloud-init configured for AWS"
+log_info "[OK] cloud-init configured for AWS"
 ((CONFIGS_APPLIED++))
 
 # Clean cloud-init for image preparation
@@ -120,7 +120,7 @@ if ! command -v aws &>/dev/null; then
     
     if command -v aws &>/dev/null; then
         AWS_VERSION=$(aws --version)
-        log_info "✓ AWS CLI installed: $AWS_VERSION"
+        log_info "[OK] AWS CLI installed: $AWS_VERSION"
         ((CONFIGS_APPLIED++))
     else
         log_warn "AWS CLI installation may have failed"
@@ -135,7 +135,7 @@ log_info "Installing AWS SSM Agent..."
 
 if ! systemctl list-unit-files | grep -q "snap.amazon-ssm-agent"; then
     if snap install amazon-ssm-agent --classic; then
-        log_info "✓ SSM Agent installed via snap"
+        log_info "[OK] SSM Agent installed via snap"
         ((CONFIGS_APPLIED++))
     else
         # Fallback to manual installation
@@ -143,7 +143,7 @@ if ! systemctl list-unit-files | grep -q "snap.amazon-ssm-agent"; then
         wget -q https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debian_amd64/amazon-ssm-agent.deb
         
         if dpkg -i amazon-ssm-agent.deb; then
-            log_info "✓ SSM Agent installed"
+            log_info "[OK] SSM Agent installed"
             ((CONFIGS_APPLIED++))
         else
             log_warn "Failed to install SSM Agent"
@@ -160,7 +160,7 @@ if systemctl list-unit-files | grep -q "amazon-ssm-agent\|snap.amazon-ssm-agent"
     systemctl start amazon-ssm-agent 2>/dev/null || systemctl start snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null || true
     
     if systemctl is-active --quiet amazon-ssm-agent 2>/dev/null || systemctl is-active --quiet snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null; then
-        log_info "✓ SSM Agent is running"
+        log_info "[OK] SSM Agent is running"
     else
         log_info "SSM Agent service enabled (will start on AWS)"
     fi
@@ -174,7 +174,7 @@ if ! dpkg -l | grep -q "amazon-cloudwatch-agent"; then
     wget -q https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
     
     if dpkg -i amazon-cloudwatch-agent.deb; then
-        log_info "✓ CloudWatch Agent installed"
+        log_info "[OK] CloudWatch Agent installed"
         ((CONFIGS_APPLIED++))
     else
         log_warn "Failed to install CloudWatch Agent"
@@ -198,7 +198,7 @@ EOF
 
 sysctl --system &>/dev/null || log_warn "Failed to apply sysctl settings"
 
-log_info "✓ Network settings configured"
+log_info "[OK] Network settings configured"
 ((CONFIGS_APPLIED++))
 
 # Configure IMDSv2
@@ -212,14 +212,14 @@ EOF
 
 chmod +x /etc/profile.d/aws-imds.sh
 
-log_info "✓ IMDSv2 configuration added"
+log_info "[OK] IMDSv2 configuration added"
 ((CONFIGS_APPLIED++))
 
 # Install NVMe tools for EBS
 log_info "Installing NVMe tools for EBS volumes..."
 
 if DEBIAN_FRONTEND=noninteractive apt-get install -y nvme-cli; then
-    log_info "✓ NVMe CLI installed"
+    log_info "[OK] NVMe CLI installed"
     ((CONFIGS_APPLIED++))
 else
     log_warn "Failed to install NVMe CLI"
@@ -230,7 +230,7 @@ log_info "Configuring ENA driver..."
 
 if ! lsmod | grep -q "^ena"; then
     if modprobe ena 2>/dev/null; then
-        log_info "✓ ENA driver loaded"
+        log_info "[OK] ENA driver loaded"
         echo "ena" >> /etc/modules
         ((CONFIGS_APPLIED++))
     else
@@ -258,7 +258,7 @@ EOF
 
 chmod +x /usr/local/bin/aws-metadata
 
-log_info "✓ AWS metadata helper created"
+log_info "[OK] AWS metadata helper created"
 ((CONFIGS_APPLIED++))
 
 # Verify installations
@@ -268,18 +268,18 @@ COMPONENTS_OK=0
 COMPONENTS_FAIL=0
 
 if dpkg -l | grep -q "^ii.*cloud-init"; then
-    log_info "  ✓ cloud-init installed"
+    log_info "  [OK] cloud-init installed"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ cloud-init not found"
+    log_warn "  [FAIL] cloud-init not found"
     ((COMPONENTS_FAIL++))
 fi
 
 if command -v aws &>/dev/null; then
-    log_info "  ✓ AWS CLI available"
+    log_info "  [OK] AWS CLI available"
     ((COMPONENTS_OK++))
 else
-    log_warn "  ✗ AWS CLI not found"
+    log_warn "  [FAIL] AWS CLI not found"
     ((COMPONENTS_FAIL++))
 fi
 

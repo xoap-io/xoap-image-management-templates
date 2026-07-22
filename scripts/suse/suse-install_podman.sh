@@ -48,7 +48,7 @@ log_info "Installing Podman packages..."
 PODMAN_PACKAGES="podman buildah skopeo"
 
 if zypper install -y $PODMAN_PACKAGES; then
-    log_info "✓ Podman packages installed successfully"
+    log_info "[OK] Podman packages installed successfully"
     ((PACKAGES_INSTALLED++))
 else
     log_error "Failed to install Podman packages"
@@ -75,7 +75,7 @@ if [[ -f "$STORAGE_CONF" ]]; then
     if ! grep -q "^driver = \"overlay\"" "$STORAGE_CONF"; then
         sed -i 's/^driver = .*/driver = "overlay"/' "$STORAGE_CONF" 2>/dev/null || \
             echo 'driver = "overlay"' >> "$STORAGE_CONF"
-        log_info "✓ Storage driver set to overlay"
+        log_info "[OK] Storage driver set to overlay"
         ((PACKAGES_INSTALLED++))
     else
         log_info "Storage driver already set to overlay"
@@ -101,7 +101,7 @@ unqualified-search-registries = ["docker.io"]
 [[registry]]
 location = "docker.io"
 EOF
-        log_info "✓ Docker Hub registry added"
+        log_info "[OK] Docker Hub registry added"
         ((PACKAGES_INSTALLED++))
     else
         log_info "Registries already configured"
@@ -112,7 +112,7 @@ fi
 log_info "Testing Podman installation..."
 
 if podman info &>/tmp/podman-info.log; then
-    log_info "✓ Podman installation test passed"
+    log_info "[OK] Podman installation test passed"
 else
     log_error "Podman installation test failed"
     cat /tmp/podman-info.log
@@ -123,7 +123,7 @@ fi
 log_info "Running test container..."
 
 if podman run --rm docker.io/hello-world &>/tmp/podman-hello.log; then
-    log_info "✓ Container test passed"
+    log_info "[OK] Container test passed"
 else
     log_warn "Container test failed (may be network related)"
 fi
@@ -139,7 +139,7 @@ log_info "Configuring Podman socket..."
 
 if systemctl list-unit-files | grep -q "podman.socket"; then
     systemctl enable podman.socket
-    log_info "✓ Podman socket enabled"
+    log_info "[OK] Podman socket enabled"
     ((PACKAGES_INSTALLED++))
 else
     log_warn "Podman socket unit not available"
@@ -149,7 +149,7 @@ fi
 if [[ ! -L /usr/bin/docker ]] && [[ ! -f /usr/bin/docker ]]; then
     log_info "Creating Docker compatibility symlink..."
     ln -s /usr/bin/podman /usr/bin/docker
-    log_info "✓ Docker symlink created (podman-docker compatibility)"
+    log_info "[OK] Docker symlink created (podman-docker compatibility)"
 else
     log_info "Docker command already exists"
 fi

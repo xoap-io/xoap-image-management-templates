@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Optimize Windows Server 2016 for Citrix SBC
 
@@ -25,23 +25,23 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 # Logging function
+$script:Component = 'W2K16Opt'
 function Write-Log {
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Position = 0)]
         [string]$Message,
-        
-        [ValidateSet('Info', 'Warning', 'Error')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $prefix = switch ($Level) {
-        'Warning' { 'WARN' }
-        'Error'   { 'ERROR' }
-        default   { 'INFO' }
-    }
-    Write-Host "[$timestamp] [$prefix] [W2K16Opt] $Message"
+    Write-Host ("[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message)
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [W2K16Opt] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 # Get OneSync service name
 $SyncService = Get-Service -Name OneSync* -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
@@ -91,9 +91,11 @@ $DeleteRegistry = @(
 
 
 
+)
+
  #Array of registry objects that will be modified
 
- $ModifyRegistry =
+$ModifyRegistry = @(
 
  @("DisablePagingExecutive DWORD from 0x0 to 0x1 - Keep drivers and kernel on physical memory.","'HKLM\System\CurrentControlSet\Control\Session Manager\Memory Management' /v DisablePagingExecutive /t REG_DWORD /d 0x1 /f"),
 
@@ -133,9 +135,11 @@ $DeleteRegistry = @(
 
 
 
+)
+
  #Array of service objects that will be set to disabled
 
- $Services =
+$Services = @(
 
  @("AJRouter - AllJoyn Router Service.","AJRouter"),
 
@@ -243,9 +247,11 @@ $DeleteRegistry = @(
 
 
 
+)
+
   #Array of scheduled task objects that will be set to disabled
 
-  $ScheduledTasks = 
+$ScheduledTasks = @(
 
   @("'AD RMS Rights Policy Template Management (Manual)'","'\Microsoft\Windows\Active Directory Rights Management Services Client'"),
 
@@ -363,7 +369,10 @@ $DeleteRegistry = @(
 
    ("XblGameSaveTaskLogon","\Microsoft\XblGameSave")
 
-Write-Log "Starting Windows Server 2016 Citrix optimization..." -Level Info
+)
+
+$startTime = Get-Date
+Write-Log "===== Optimize_w2k16 starting ====="
 Write-Log "This script will modify registry, disable services, and remove features"
 
 # Create registry entries
@@ -374,7 +383,7 @@ foreach ($RegistryObject in $CreateRegistry) {
         $command = "reg add " + $RegistryObject[1]
         Start-Process -FilePath "reg.exe" -ArgumentList ("add " + $RegistryObject[1]) -NoNewWindow -Wait
     } catch {
-        Write-Log "Could not create registry object $($RegistryObject[0]): $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not create registry object $($RegistryObject[0]): $($_.Exception.Message)" -Level WARN
     }
 }
 
@@ -385,7 +394,7 @@ foreach ($RegistryObject in $DeleteRegistry) {
     try {
         Start-Process -FilePath "reg.exe" -ArgumentList ("delete " + $RegistryObject[1]) -NoNewWindow -Wait
     } catch {
-        Write-Log "Could not delete registry object $($RegistryObject[0]): $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not delete registry object $($RegistryObject[0]): $($_.Exception.Message)" -Level WARN
     }
 }
 
@@ -396,7 +405,7 @@ foreach ($RegistryObject in $ModifyRegistry) {
     try {
         Start-Process -FilePath "reg.exe" -ArgumentList ("add " + $RegistryObject[1]) -NoNewWindow -Wait
     } catch {
-        Write-Log "Could not modify registry object $($RegistryObject[0]): $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not modify registry object $($RegistryObject[0]): $($_.Exception.Message)" -Level WARN
     }
 }
 
@@ -407,7 +416,7 @@ foreach ($ServiceObject in $Services) {
     try {
         Set-Service -Name $ServiceObject[1] -StartupType Disabled -ErrorAction Stop
     } catch {
-        Write-Log "Could not disable service $($ServiceObject[0]): $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not disable service $($ServiceObject[0]): $($_.Exception.Message)" -Level WARN
     }
 }
 
@@ -418,7 +427,7 @@ foreach ($TaskObject in $ScheduledTasks) {
     try {
         Disable-ScheduledTask -TaskName $TaskObject[0].Trim("'") -TaskPath $TaskObject[1].Trim("'") -ErrorAction Stop | Out-Null
     } catch {
-        Write-Log "Could not disable scheduled task $($TaskObject[0]): $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not disable scheduled task $($TaskObject[0]): $($_.Exception.Message)" -Level WARN
     }
 }
 
@@ -428,7 +437,10 @@ try {
     Uninstall-WindowsFeature -Name "Windows-Defender-Features" -ErrorAction Stop | Out-Null
     Write-Log "Windows Defender removed successfully"
 } catch {
-    Write-Log "Could not remove Windows Defender: $($_.Exception.Message)" -Level Warning
+    Write-Log "Could not remove Windows Defender: $($_.Exception.Message)" -Level WARN
 }
 
-Write-Log "All optimizations are complete. Please restart your system." -Level Info
+Write-Log "All optimizations are complete. A system restart is recommended."
+Write-Log "===== Optimize_w2k16 complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+try { Stop-Transcript | Out-Null } catch {}
+exit 0

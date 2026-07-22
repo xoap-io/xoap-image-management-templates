@@ -70,6 +70,20 @@ jobs:
       - name: Install Pester
         shell: pwsh
         run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          # NuGet provider is built into PowerShell 7; only bootstrap it if absent
+          # (Install-PackageProvider hard-fails on pwsh 7 where the provider already exists).
+          try {
+            if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction Stop | Out-Null
+            }
+          } catch {
+            Write-Host "NuGet provider bootstrap skipped: $_"
+          }
+          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+            Register-PSRepository -Default
+          }
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module -Name Pester -Force -SkipPublisherCheck -MinimumVersion 5.0.0
           Import-Module Pester -PassThru
       
@@ -120,23 +134,29 @@ jobs:
   cross-platform-validation:
     name: Cross-Platform Validation
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-    
+
     runs-on: ${{ matrix.os }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Setup PowerShell (Linux/macOS)
+
+      - name: Ensure PowerShell (Linux/macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
+          # pwsh is preinstalled on GitHub-hosted runners; only install if absent.
+          if command -v pwsh >/dev/null 2>&1; then
+            echo "pwsh already present: $(pwsh --version)"
+            exit 0
+          fi
           if [ "$RUNNER_OS" == "Linux" ]; then
-            sudo apt-get update
-            sudo apt-get install -y powershell
+            sudo apt-get update && sudo apt-get install -y powershell
           elif [ "$RUNNER_OS" == "macOS" ]; then
-            brew install --cask powershell
+            brew install --cask powershell || brew install powershell
           fi
       
       - name: Validate PowerShell scripts
@@ -149,11 +169,13 @@ jobs:
           $errors = 0
           foreach ($script in $scripts) {
             try {
+              $parseErrors = $null
               $null = [System.Management.Automation.PSParser]::Tokenize(
-                (Get-Content $script.FullName -Raw), 
+                (Get-Content $script.FullName -Raw),
                 [ref]$parseErrors
               )
               if ($parseErrors.Count -gt 0) {
+                Write-Host "::error file=$($script.FullName)::Syntax errors found"
                 $errors++
               }
             } catch {

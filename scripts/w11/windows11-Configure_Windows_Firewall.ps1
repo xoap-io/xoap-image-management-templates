@@ -33,9 +33,12 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $LogDir = 'C:\xoap-logs'
-$scriptName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogDir "$scriptName-$timestamp.log"
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [Firewall] Transcript unavailable: $($_.Exception.Message)" }
 
 $script:RulesConfigured = 0
 $script:RulesEnabled = 0
@@ -57,24 +60,19 @@ function Write-Log {
     }
     $logMessage = "[$timestamp] [$prefix] [Firewall] $Message"
     Write-Host $logMessage
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
 trap {
     Write-Log "Critical error: $_" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
     exit 1
 }
 
 try {
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Start-Transcript -Path $LogFile -Append | Out-Null
     $startTime = Get-Date
-    
+    Write-Log "===== Configure_Windows_Firewall starting ====="
+
     Write-Log "==================================================="
     Write-Log "Windows Firewall Configuration Script"
     Write-Log "==================================================="
@@ -87,7 +85,7 @@ try {
     # Enable Windows Firewall on all profiles
     Write-Log "Enabling Windows Firewall on all profiles..."
     Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
-    Write-Log "✓ Windows Firewall enabled on all profiles"
+    Write-Log "[OK] Windows Firewall enabled on all profiles"
     $script:RulesConfigured++
     
     # Configure default actions
@@ -95,7 +93,7 @@ try {
     Set-NetFirewallProfile -Profile Domain -DefaultInboundAction Block -DefaultOutboundAction Allow
     Set-NetFirewallProfile -Profile Public -DefaultInboundAction Block -DefaultOutboundAction Allow
     Set-NetFirewallProfile -Profile Private -DefaultInboundAction Block -DefaultOutboundAction Allow
-    Write-Log "✓ Default actions configured (Block Inbound, Allow Outbound)"
+    Write-Log "[OK] Default actions configured (Block Inbound, Allow Outbound)"
     $script:RulesConfigured++
     
     # Enable firewall logging
@@ -111,7 +109,7 @@ try {
         -LogBlocked True `
         -LogAllowed False
     
-    Write-Log "✓ Firewall logging enabled: $logPath\pfirewall.log"
+    Write-Log "[OK] Firewall logging enabled: $logPath\pfirewall.log"
     $script:RulesConfigured++
     
     # Disable all unnecessary predefined rules
@@ -140,7 +138,7 @@ try {
     if ($EnableRDP) {
         Write-Log "Enabling Remote Desktop rules..."
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Write-Log "✓ Remote Desktop firewall rules enabled"
+        Write-Log "[OK] Remote Desktop firewall rules enabled"
         $script:RulesEnabled++
     }
     
@@ -148,7 +146,7 @@ try {
     if ($EnableWinRM) {
         Write-Log "Enabling Windows Remote Management rules..."
         Enable-NetFirewallRule -DisplayGroup "Windows Remote Management"
-        Write-Log "✓ WinRM firewall rules enabled"
+        Write-Log "[OK] WinRM firewall rules enabled"
         $script:RulesEnabled++
     }
     
@@ -156,7 +154,7 @@ try {
     if ($EnableSMB) {
         Write-Log "Enabling File and Printer Sharing rules..."
         Enable-NetFirewallRule -DisplayGroup "File and Printer Sharing"
-        Write-Log "✓ SMB firewall rules enabled"
+        Write-Log "[OK] SMB firewall rules enabled"
         $script:RulesEnabled++
     }
     
@@ -165,7 +163,7 @@ try {
         Write-Log "Enabling ICMP (ping) rules..."
         Enable-NetFirewallRule -DisplayName "File and Printer Sharing (Echo Request - ICMPv4-In)"
         Enable-NetFirewallRule -DisplayName "File and Printer Sharing (Echo Request - ICMPv6-In)"
-        Write-Log "✓ ICMP firewall rules enabled"
+        Write-Log "[OK] ICMP firewall rules enabled"
         $script:RulesEnabled++
     }
     
@@ -243,10 +241,10 @@ try {
     $firewallService = Get-Service -Name 'mpssvc'
     if ($firewallService.Status -ne 'Running') {
         Start-Service -Name 'mpssvc'
-        Write-Log "✓ Windows Firewall service started"
+        Write-Log "[OK] Windows Firewall service started"
     }
     Set-Service -Name 'mpssvc' -StartupType Automatic
-    Write-Log "✓ Windows Firewall service set to automatic"
+    Write-Log "[OK] Windows Firewall service set to automatic"
     
     # Display current profile status
     Write-Log ""
@@ -275,10 +273,13 @@ try {
     Write-Log "Execution time: $([math]::Round($duration, 2))s"
     Write-Log "==================================================="
     Write-Log "Windows Firewall configuration completed!"
-    
+
+    Write-Log "===== Configure_Windows_Firewall complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Script execution failed: $_" -Level Error
     exit 1
 } finally {
-    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Transcript | Out-Null } catch {}
 }

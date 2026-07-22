@@ -1,0 +1,117 @@
+# Windows 11 Enterprise — XenServer base golden image (alpaka v6 / xenserver).
+#
+# Builds a clean, optimized and generalized Windows 11 Enterprise base image on XenServer from the
+# install ISO, using the repo's XenServer W11 Autounattend answer file and the XenServer Guest Tools.
+#
+# Script paths below are resolved by alpaka INSIDE this template directory. Vendor them first:
+# `pwsh examples/sync-demo-scripts.ps1 -Set w11-base-xenserver`.
+version: "2.0"
+description: "Windows 11 Enterprise XenServer base golden image"
+
+variables:
+  xen_host: "{{env `XEN_HOST`}}"
+  vm_name: "w11-base"
+  sr_name: "Local storage"
+  iso_url: "{{env `XEN_ISO_URL`}}"
+
+sensitive_variables:
+  - ssh_password
+
+target_platforms:
+  - name: "w11-base-xenserver"
+    type: "xenserver"
+    # --- XenServer host connection ---
+    remote_host: "{{ xen_host }}"
+    remote_username: "root"
+    remote_password: "{{env `XEN_ROOT_PASSWORD`}}"
+    remote_ssh_port: 22
+
+    # --- ISO source (supply via env) ---
+    iso_url: "{{ iso_url }}"
+    iso_checksum: "{{env `XEN_ISO_CHECKSUM`}}"
+    tools_iso_name: "guest-tools.iso"
+    sr_iso_name: "ISO Library"
+
+    # --- VM configuration (UEFI for Windows 11) ---
+    vm_name: "{{ vm_name }}"
+    vm_description: "Windows 11 Enterprise base golden image built by Alpaka"
+    vm_memory: 8192
+    vcpus_max: 4
+    vcpus_atstartup: 4
+    clone_template: "Windows 11 (64-bit)"
+    firmware: "uefi"
+    disk_name: "Alpaka-OS-Disk"
+    disk_size: 65536
+    sr_name: "{{ sr_name }}"
+
+    # --- Autounattend (Windows 11 Enterprise, XenServer) attached via floppy ---
+    floppy_files:
+      - "../../../autounattend/W11/xenserver/Autounattend-Enterprise.xml"
+
+    boot_command:
+      - "<spacebar>"
+    boot_wait: "5s"
+    install_timeout: "300m"
+    shutdown_command: "shutdown /s /t 10 /f /d p:4:1 /c \"Alpaka Shutdown\""
+
+    # --- Network ---
+    network_names:
+      - "Pool-wide network associated with eth0"
+    ip_getter: "auto"
+
+    # --- WinRM bootstrap over SSH transport ---
+    ssh_username: "Administrator"
+    ssh_password: "{{env `XEN_WIN_ADMIN_PASSWORD`}}"
+    ssh_port: 22
+    ssh_wait_timeout: "45m"
+
+    # --- Output: base image/template (XVA export) ---
+    output_directory: "output-w11-base-xenserver"
+    format: "xva"
+    keep_vm: "never"
+
+actions:
+  - type: powershell
+    name: install-xenserver-guest-tools
+    script: "scripts/Install_XenServer_Guest_Tools.ps1"
+    timeout: "20m"
+    valid_exit_codes: [0, 3010]
+
+  - type: powershell
+    name: optimize-w11
+    script: "scripts/windows11-Optimize_W11_25H2.ps1"
+    timeout: "20m"
+
+  - type: powershell
+    name: cleanup
+    script: "scripts/windows11-Cleanup_Temporary_Files.ps1"
+    timeout: "20m"
+
+  # --- stage + run Pester before sysprep (a failed test aborts the build) ---
+  - type: file
+    name: stage-tests
+    source: "../tests/W11BaseXenServer.Tests.ps1"
+    destination: "C:/Alpaka/Tests/W11BaseXenServer.Tests.ps1"
+    direction: "upload"
+
+  - type: powershell
+    name: pester-validate
+    timeout: "20m"
+    inline:
+      - "Set-ExecutionPolicy Bypass -Scope Process -Force; [Net.ServicePointManager]::SecurityProtocol=3072; Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null; if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'5.0.0' })) { Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope AllUsers }; Import-Module Pester -MinimumVersion 5.0.0 -Force; $cfg = New-PesterConfiguration; $cfg.Run.Path='C:\\Alpaka\\Tests'; $cfg.Run.PassThru=$true; $cfg.Output.Verbosity='Detailed'; $r=Invoke-Pester -Configuration $cfg; if ($r.FailedCount -gt 0) { throw (\"Pester: {0}/{1} tests failed\" -f $r.FailedCount,$r.TotalCount) }"
+
+  - type: powershell
+    name: sysprep-generalize
+    script: "scripts/windows-server-Invoke_Sysprep.ps1"
+    timeout: "30m"
+    environment:
+      SYSPREP_VMMODE: "1"
+      SYSPREP_MODE: "OOBE"
+      SYSPREP_SHUTDOWN: "Shutdown"
+    valid_exit_codes: [0, 3010]
+
+post_build:
+  - name: "manifest"
+    type: "manifest"
+    output: "w11-base-xenserver-manifest.json"
+    strip_path: true

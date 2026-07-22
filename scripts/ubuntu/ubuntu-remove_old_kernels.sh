@@ -128,10 +128,10 @@ for kernel_pkg in $KERNELS_FOR_REMOVAL; do
     
     if [[ -n "$RELATED_PACKAGES" ]]; then
         if DEBIAN_FRONTEND=noninteractive apt-get purge -y $RELATED_PACKAGES 2>&1 | tee /tmp/kernel-remove.log; then
-            log_info "  ✓ Removed $kernel_pkg and related packages"
+            log_info "  [OK] Removed $kernel_pkg and related packages"
             ((KERNELS_REMOVED++))
         else
-            log_error "  ✗ Failed to remove $kernel_pkg"
+            log_error "  [FAIL] Failed to remove $kernel_pkg"
             cat /tmp/kernel-remove.log | tail -n 10 | while IFS= read -r line; do
                 log_error "    $line"
             done
@@ -148,7 +148,7 @@ DEBIAN_FRONTEND=noninteractive apt-get autoremove -y &>/dev/null || log_warn "Fa
 log_info "Updating GRUB configuration..."
 
 if update-grub &>/dev/null; then
-    log_info "✓ GRUB configuration updated"
+    log_info "[OK] GRUB configuration updated"
 else
     log_warn "Failed to update GRUB configuration"
 fi

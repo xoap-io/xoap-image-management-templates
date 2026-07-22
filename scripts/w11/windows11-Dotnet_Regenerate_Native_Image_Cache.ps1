@@ -23,6 +23,14 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f `
+        [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [WARN] [DotNet] Transcript unavailable: $($_.Exception.Message)" }
+
 # Logging function
 function Write-Log {
     param(
@@ -44,6 +52,8 @@ function Write-Log {
 
 # Main script execution
 try {
+    $startTime = Get-Date
+    Write-Log "===== Dotnet_Regenerate_Native_Image_Cache starting ====="
     Write-Log "Starting .NET native image cache regeneration..."
     
     $ngenFramework = "$env:windir\microsoft.net\framework\v4.0.30319\ngen.exe"
@@ -81,9 +91,13 @@ try {
     }
     
     Write-Log ".NET native image cache regeneration completed successfully"
-    
+    Write-Log "===== Dotnet_Regenerate_Native_Image_Cache complete in $([int]((Get-Date) - $startTime).TotalSeconds)s ====="
+    exit 0
+
 } catch {
     Write-Log "Error: $($_.Exception.Message)" -Level Error
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level Error
     exit 1
+} finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }

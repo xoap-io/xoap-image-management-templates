@@ -94,30 +94,25 @@ $script:InstallationsFailed = 0
 
 #region Helper Functions
 
-function Write-LogMessage {
+$script:Component = 'Zabbix'
+function Write-Log {
     param(
+        [Parameter(Position = 0)]
         [string]$Message,
-        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
-        [string]$Level = 'Info'
+        [ValidateSet('INFO', 'WARN', 'ERROR')]
+        [string]$Level = 'INFO'
     )
-    
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $logMessage = "[$timestamp] [$Level] $Message"
-    
-    # Ensure log directory exists
-    if (-not (Test-Path $LogDir)) {
-        New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
-    }
-    
-    Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
-    
-    switch ($Level) {
-        'Error'   { Write-Host $logMessage -ForegroundColor Red }
-        'Warning' { Write-Host $logMessage -ForegroundColor Yellow }
-        'Success' { Write-Host $logMessage -ForegroundColor Green }
-        default   { Write-Host $logMessage }
-    }
+
+    $line = "[{0}] [{1}] [{2}] {3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $script:Component, $Message
+    Write-Host $line
 }
+
+$LogDir = 'C:\xoap-logs'
+try {
+    if (-not (Test-Path $LogDir)) { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null }
+    $script:LogFile = Join-Path $LogDir ("{0}-{1}.log" -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Start-Transcript -Path $script:LogFile -Append | Out-Null
+} catch { Write-Host ("[{0}] [WARN] [Zabbix] Transcript unavailable: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message) }
 
 function Test-IsAdministrator {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -129,13 +124,13 @@ function Test-ZabbixAgentInstalled {
     try {
         $agentPath = Join-Path $InstallPath "bin\$AgentExeName"
         if (Test-Path $agentPath) {
-            Write-LogMessage "Zabbix Agent found at: $agentPath" -Level Info
+            Write-Log "Zabbix Agent found at: $agentPath" -Level INFO
             return $true
         }
         
         $service = Get-Service | Where-Object { $_.DisplayName -like "Zabbix Agent*" }
         if ($service) {
-            Write-LogMessage "Zabbix Agent service found: $($service.DisplayName)" -Level Info
+            Write-Log "Zabbix Agent service found: $($service.DisplayName)" -Level INFO
             return $true
         }
         
@@ -162,17 +157,17 @@ function Get-ZabbixDownloadUrl {
         
         $downloadUrl = "$baseUrl/$filename"
         
-        Write-LogMessage "Download URL: $downloadUrl" -Level Info
+        Write-Log "Download URL: $downloadUrl" -Level INFO
         return $downloadUrl
     }
     catch {
-        Write-LogMessage "Error constructing download URL: $($_.Exception.Message)" -Level Error
+        Write-Log "Error constructing download URL: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
 
 function Install-ZabbixAgent {
-    Write-LogMessage "Installing Zabbix Agent..." -Level Info
+    Write-Log "Installing Zabbix Agent..." -Level INFO
     
     try {
         # Create temp directory
@@ -188,7 +183,7 @@ function Install-ZabbixAgent {
         
         $installerPath = Join-Path $TempDir "zabbix_agent.msi"
         
-        Write-LogMessage "Downloading Zabbix Agent from $downloadUrl" -Level Info
+        Write-Log "Downloading Zabbix Agent from $downloadUrl" -Level INFO
         
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -197,8 +192,8 @@ function Install-ZabbixAgent {
             $webClient.Dispose()
         }
         catch {
-            Write-LogMessage "Download failed: $($_.Exception.Message)" -Level Error
-            Write-LogMessage "Please download manually from: https://www.zabbix.com/download_agents" -Level Warning
+            Write-Log "Download failed: $($_.Exception.Message)" -Level ERROR
+            Write-Log "Please download manually from: https://www.zabbix.com/download_agents" -Level WARN
             throw "Download failed"
         }
         
@@ -206,7 +201,7 @@ function Install-ZabbixAgent {
             throw "Installer not found at $installerPath"
         }
         
-        Write-LogMessage "Installer downloaded successfully" -Level Success
+        Write-Log "Installer downloaded successfully" -Level INFO
         
         # Build installation arguments
         $installArgs = @(
@@ -240,13 +235,13 @@ function Install-ZabbixAgent {
         
         $installArgString = $installArgs -join ' '
         
-        Write-LogMessage "Installation command: msiexec.exe $installArgString" -Level Info
-        Write-LogMessage "Installing Zabbix Agent (this may take a few minutes)..." -Level Info
+        Write-Log "Installation command: msiexec.exe $installArgString" -Level INFO
+        Write-Log "Installing Zabbix Agent (this may take a few minutes)..." -Level INFO
         
         $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $installArgString -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
-            Write-LogMessage "Zabbix Agent installed successfully (Exit Code: $($process.ExitCode))" -Level Success
+            Write-Log "Zabbix Agent installed successfully (Exit Code: $($process.ExitCode))" -Level INFO
             $script:ComponentsInstalled++
             
             # Wait for service to be created
@@ -254,21 +249,21 @@ function Install-ZabbixAgent {
             return $true
         }
         else {
-            Write-LogMessage "Installation failed with exit code: $($process.ExitCode)" -Level Error
-            Write-LogMessage "Check installation log: $LogDir\zabbix-install-$timestamp.log" -Level Error
+            Write-Log "Installation failed with exit code: $($process.ExitCode)" -Level ERROR
+            Write-Log "Check installation log: $LogDir\zabbix-install-$timestamp.log" -Level ERROR
             $script:InstallationsFailed++
             return $false
         }
     }
     catch {
-        Write-LogMessage "Error during installation: $($_.Exception.Message)" -Level Error
+        Write-Log "Error during installation: $($_.Exception.Message)" -Level ERROR
         $script:InstallationsFailed++
         return $false
     }
 }
 
 function New-PSKKey {
-    Write-LogMessage "Generating PSK key..." -Level Info
+    Write-Log "Generating PSK key..." -Level INFO
     
     try {
         # Generate 32-byte (256-bit) random key
@@ -279,23 +274,23 @@ function New-PSKKey {
         # Convert to hex string
         $pskKey = ($bytes | ForEach-Object { $_.ToString("x2") }) -join ''
         
-        Write-LogMessage "PSK key generated successfully" -Level Success
+        Write-Log "PSK key generated successfully" -Level INFO
         return $pskKey
     }
     catch {
-        Write-LogMessage "Error generating PSK key: $($_.Exception.Message)" -Level Error
+        Write-Log "Error generating PSK key: $($_.Exception.Message)" -Level ERROR
         return $null
     }
 }
 
 function Configure-ZabbixAgent {
-    Write-LogMessage "Configuring Zabbix Agent..." -Level Info
+    Write-Log "Configuring Zabbix Agent..." -Level INFO
     
     try {
         $configPath = Join-Path $InstallPath "conf\$ConfigFileName"
         
         if (-not (Test-Path $configPath)) {
-            Write-LogMessage "Configuration file not found: $configPath" -Level Error
+            Write-Log "Configuration file not found: $configPath" -Level ERROR
             return $false
         }
         
@@ -362,7 +357,7 @@ function Configure-ZabbixAgent {
         
         # Configure PSK if enabled
         if ($EnablePSK) {
-            Write-LogMessage "Configuring PSK encryption..." -Level Info
+            Write-Log "Configuring PSK encryption..." -Level INFO
             
             # Generate PSK identity if not provided
             if ([string]::IsNullOrWhiteSpace($PSKIdentity)) {
@@ -372,7 +367,7 @@ function Configure-ZabbixAgent {
             # Generate PSK key
             $pskKey = New-PSKKey
             if (-not $pskKey) {
-                Write-LogMessage "Failed to generate PSK key" -Level Error
+                Write-Log "Failed to generate PSK key" -Level ERROR
                 return $false
             }
             
@@ -388,8 +383,8 @@ function Configure-ZabbixAgent {
             $newConfig += "TLSPSKIdentity=$PSKIdentity"
             $newConfig += "TLSPSKFile=$pskFilePath"
             
-            Write-LogMessage "PSK encryption configured" -Level Success
-            Write-LogMessage "PSK Identity: $PSKIdentity" -Level Info
+            Write-Log "PSK encryption configured" -Level INFO
+            Write-Log "PSK Identity: $PSKIdentity" -Level INFO
             
             # Save PSK credentials
             $pskCredFile = Join-Path $LogDir "zabbix-psk-$timestamp.txt"
@@ -406,7 +401,7 @@ IMPORTANT: Store these credentials securely and configure them in Zabbix server.
 Delete this file after recording credentials.
 "@
             Set-Content -Path $pskCredFile -Value $pskCred -Force
-            Write-LogMessage "PSK credentials saved to: $pskCredFile" -Level Info
+            Write-Log "PSK credentials saved to: $pskCredFile" -Level INFO
             
             $script:ConfigurationsApplied++
         }
@@ -414,38 +409,38 @@ Delete this file after recording credentials.
         # Write updated configuration
         Set-Content -Path $configPath -Value $newConfig -Force
         
-        Write-LogMessage "Configuration file updated: $configPath" -Level Success
+        Write-Log "Configuration file updated: $configPath" -Level INFO
         $script:ConfigurationsApplied++
         
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring agent: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring agent: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Set-ZabbixServiceStartup {
-    Write-LogMessage "Configuring Zabbix Agent service..." -Level Info
+    Write-Log "Configuring Zabbix Agent service..." -Level INFO
     
     try {
         $service = Get-Service | Where-Object { $_.DisplayName -like "Zabbix Agent*" } | Select-Object -First 1
         
         if (-not $service) {
-            Write-LogMessage "Zabbix Agent service not found" -Level Error
+            Write-Log "Zabbix Agent service not found" -Level ERROR
             return $false
         }
         
-        Write-LogMessage "Found service: $($service.DisplayName)" -Level Info
+        Write-Log "Found service: $($service.DisplayName)" -Level INFO
         
         if ($DisableService) {
-            Write-LogMessage "Disabling Zabbix Agent service (image preparation mode)" -Level Info
+            Write-Log "Disabling Zabbix Agent service (image preparation mode)" -Level INFO
             Stop-Service -Name $service.Name -Force -ErrorAction SilentlyContinue
             Set-Service -Name $service.Name -StartupType Disabled
-            Write-LogMessage "Zabbix Agent service disabled" -Level Success
+            Write-Log "Zabbix Agent service disabled" -Level INFO
         }
         else {
-            Write-LogMessage "Configuring Zabbix Agent to start automatically" -Level Info
+            Write-Log "Configuring Zabbix Agent to start automatically" -Level INFO
             Set-Service -Name $service.Name -StartupType Automatic
             
             if ($ZabbixServer) {
@@ -454,10 +449,10 @@ function Set-ZabbixServiceStartup {
                 
                 $serviceStatus = (Get-Service -Name $service.Name).Status
                 if ($serviceStatus -eq 'Running') {
-                    Write-LogMessage "Zabbix Agent service started successfully" -Level Success
+                    Write-Log "Zabbix Agent service started successfully" -Level INFO
                 }
                 else {
-                    Write-LogMessage "Zabbix Agent service configured but not running: $serviceStatus" -Level Warning
+                    Write-Log "Zabbix Agent service configured but not running: $serviceStatus" -Level WARN
                 }
             }
         }
@@ -466,23 +461,23 @@ function Set-ZabbixServiceStartup {
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring service: $($_.Exception.Message)" -Level Error
+        Write-Log "Error configuring service: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Set-ZabbixFirewallRules {
-    Write-LogMessage "Configuring Windows Firewall rules for Zabbix..." -Level Info
+    Write-Log "Configuring Windows Firewall rules for Zabbix..." -Level INFO
     
     try {
         $ruleName = "Zabbix Agent - Passive Checks"
         $existingRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         
         if ($existingRule) {
-            Write-LogMessage "Zabbix firewall rule already exists" -Level Info
+            Write-Log "Zabbix firewall rule already exists" -Level INFO
         }
         else {
-            Write-LogMessage "Creating Zabbix firewall rule..." -Level Info
+            Write-Log "Creating Zabbix firewall rule..." -Level INFO
             
             New-NetFirewallRule -DisplayName $ruleName `
                 -Direction Inbound `
@@ -493,78 +488,78 @@ function Set-ZabbixFirewallRules {
                 -Description "Allow Zabbix server to connect for passive checks" `
                 -ErrorAction SilentlyContinue | Out-Null
             
-            Write-LogMessage "Firewall rule created for port $ListenPort" -Level Success
+            Write-Log "Firewall rule created for port $ListenPort" -Level INFO
             $script:ConfigurationsApplied++
         }
         
         return $true
     }
     catch {
-        Write-LogMessage "Error configuring firewall: $($_.Exception.Message)" -Level Warning
+        Write-Log "Error configuring firewall: $($_.Exception.Message)" -Level WARN
         return $false
     }
 }
 
 function Test-ZabbixAgentConfiguration {
-    Write-LogMessage "Verifying Zabbix Agent installation..." -Level Info
+    Write-Log "Verifying Zabbix Agent installation..." -Level INFO
     
     try {
         # Check service
         $service = Get-Service | Where-Object { $_.DisplayName -like "Zabbix Agent*" } | Select-Object -First 1
         
         if ($service) {
-            Write-LogMessage "Service Name: $($service.Name)" -Level Info
-            Write-LogMessage "Service Status: $($service.Status)" -Level Info
-            Write-LogMessage "Service Startup Type: $($service.StartType)" -Level Info
+            Write-Log "Service Name: $($service.Name)" -Level INFO
+            Write-Log "Service Status: $($service.Status)" -Level INFO
+            Write-Log "Service Startup Type: $($service.StartType)" -Level INFO
         }
         else {
-            Write-LogMessage "Zabbix Agent service not found" -Level Error
+            Write-Log "Zabbix Agent service not found" -Level ERROR
             return $false
         }
         
         # Check configuration file
         $configPath = Join-Path $InstallPath "conf\$ConfigFileName"
         if (Test-Path $configPath) {
-            Write-LogMessage "Configuration file: $configPath" -Level Info
+            Write-Log "Configuration file: $configPath" -Level INFO
             
             $config = Get-Content $configPath
             $serverLine = $config | Where-Object { $_ -match "^Server=" } | Select-Object -First 1
             $hostnameLine = $config | Where-Object { $_ -match "^Hostname=" } | Select-Object -First 1
             
-            if ($serverLine) { Write-LogMessage "  $serverLine" -Level Info }
-            if ($hostnameLine) { Write-LogMessage "  $hostnameLine" -Level Info }
+            if ($serverLine) { Write-Log "  $serverLine" -Level INFO }
+            if ($hostnameLine) { Write-Log "  $hostnameLine" -Level INFO }
         }
         
         # Check agent executable
         $agentPath = Join-Path $InstallPath "bin\$AgentExeName"
         if (Test-Path $agentPath) {
-            Write-LogMessage "Agent executable: $agentPath" -Level Info
+            Write-Log "Agent executable: $agentPath" -Level INFO
             
             # Get version
             $versionOutput = & $agentPath --version 2>&1 | Select-Object -First 1
-            Write-LogMessage "  Version: $versionOutput" -Level Info
+            Write-Log "  Version: $versionOutput" -Level INFO
         }
         
-        Write-LogMessage "Zabbix Agent verification completed" -Level Success
+        Write-Log "Zabbix Agent verification completed" -Level INFO
         return $true
     }
     catch {
-        Write-LogMessage "Error during verification: $($_.Exception.Message)" -Level Error
+        Write-Log "Error during verification: $($_.Exception.Message)" -Level ERROR
         return $false
     }
 }
 
 function Remove-ZabbixInstaller {
-    Write-LogMessage "Cleaning up installation files..." -Level Info
+    Write-Log "Cleaning up installation files..." -Level INFO
     
     try {
         if (Test-Path $TempDir) {
             Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-LogMessage "Temporary files cleaned up" -Level Success
+            Write-Log "Temporary files cleaned up" -Level INFO
         }
     }
     catch {
-        Write-LogMessage "Could not clean up temp directory: $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not clean up temp directory: $($_.Exception.Message)" -Level WARN
     }
 }
 
@@ -574,27 +569,20 @@ function Remove-ZabbixInstaller {
 
 function Main {
     $scriptStartTime = Get-Date
-    
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Zabbix Agent Installation" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Script: $scriptName" -Level Info
-    Write-LogMessage "Agent Version: $AgentVersion" -Level Info
-    Write-LogMessage "Agent Type: $(if ($UseAgent2) { 'Agent 2' } else { 'Agent 1' })" -Level Info
-    Write-LogMessage "Log File: $LogFile" -Level Info
-    Write-LogMessage "Started: $scriptStartTime" -Level Info
-    Write-LogMessage "" -Level Info
-    
+
+    Write-Log "===== Install_Zabbix_Agent starting (Version=$AgentVersion, Type=$(if ($UseAgent2) { 'Agent 2' } else { 'Agent 1' })) ====="
+    Write-Log "Log File: $LogFile"
+
     # Check prerequisites
     if (-not (Test-IsAdministrator)) {
-        Write-LogMessage "This script requires Administrator privileges" -Level Error
+        Write-Log "This script requires Administrator privileges" -Level ERROR
         exit 1
     }
     
     # Check if already installed
     if (Test-ZabbixAgentInstalled) {
-        Write-LogMessage "Zabbix Agent is already installed" -Level Warning
-        Write-LogMessage "Skipping installation. To reinstall, uninstall the existing agent first." -Level Warning
+        Write-Log "Zabbix Agent is already installed" -Level WARN
+        Write-Log "Skipping installation. To reinstall, uninstall the existing agent first." -Level WARN
         exit 0
     }
     
@@ -602,7 +590,7 @@ function Main {
     $installSuccess = Install-ZabbixAgent
     
     if (-not $installSuccess) {
-        Write-LogMessage "Zabbix Agent installation failed" -Level Error
+        Write-Log "Zabbix Agent installation failed" -Level ERROR
         exit 1
     }
     
@@ -621,38 +609,21 @@ function Main {
     # Cleanup
     Remove-ZabbixInstaller
     
-    # Summary
-    $scriptEndTime = Get-Date
-    $duration = $scriptEndTime - $scriptStartTime
-    
-    Write-LogMessage "" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Installation Summary" -Level Info
-    Write-LogMessage "========================================" -Level Info
-    Write-LogMessage "Components Installed: $script:ComponentsInstalled" -Level Info
-    Write-LogMessage "Configurations Applied: $script:ConfigurationsApplied" -Level Info
-    Write-LogMessage "Installation Failures: $script:InstallationsFailed" -Level Info
-    Write-LogMessage "Duration: $($duration.TotalSeconds) seconds" -Level Info
-    Write-LogMessage "Log file: $LogFile" -Level Info
-    
     if ($script:InstallationsFailed -eq 0) {
-        Write-LogMessage "Zabbix Agent installation completed successfully!" -Level Success
-        
         if (-not $ZabbixServer) {
-            Write-LogMessage "" -Level Info
-            Write-LogMessage "NOTE: No Zabbix server configured" -Level Warning
-            Write-LogMessage "Edit configuration file: $(Join-Path $InstallPath "conf\$ConfigFileName")" -Level Info
+            Write-Log "NOTE: No Zabbix server configured" -Level WARN
+            Write-Log "Edit configuration file: $(Join-Path $InstallPath "conf\$ConfigFileName")"
         }
-        
+
         if ($EnablePSK) {
-            Write-LogMessage "" -Level Info
-            Write-LogMessage "PSK encryption enabled - remember to configure PSK on Zabbix server" -Level Warning
+            Write-Log "PSK encryption enabled - remember to configure PSK on Zabbix server" -Level WARN
         }
-        
+
+        Write-Log "===== Install_Zabbix_Agent complete in $([int]((Get-Date) - $scriptStartTime).TotalSeconds)s; applied=$script:ConfigurationsApplied failed=$script:InstallationsFailed ====="
         exit 0
     }
     else {
-        Write-LogMessage "Installation completed with errors. Check logs." -Level Warning
+        Write-Log "Installation completed with errors. Check logs." -Level WARN
         exit 1
     }
 }
@@ -662,9 +633,12 @@ try {
     Main
 }
 catch {
-    Write-LogMessage "Fatal error: $($_.Exception.Message)" -Level Error
-    Write-LogMessage "Stack trace: $($_.ScriptStackTrace)" -Level Error
+    Write-Log "Fatal error: $($_.Exception.Message)" -Level ERROR
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" -Level ERROR
     exit 1
+}
+finally {
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 #endregion

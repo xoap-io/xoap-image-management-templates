@@ -69,7 +69,7 @@ if ! command -v chronyd &>/dev/null; then
     log_info "Installing chrony..."
     
     if zypper install -y chrony; then
-        log_info "✓ chrony installed"
+        log_info "[OK] chrony installed"
         ((CONFIGS_APPLIED++))
     else
         log_error "Failed to install chrony"
@@ -84,7 +84,7 @@ if systemctl is-active --quiet systemd-timesyncd 2>/dev/null; then
     log_info "Disabling systemd-timesyncd..."
     systemctl stop systemd-timesyncd
     systemctl disable systemd-timesyncd
-    log_info "✓ systemd-timesyncd disabled"
+    log_info "[OK] systemd-timesyncd disabled"
     ((CONFIGS_APPLIED++))
 fi
 
@@ -157,14 +157,14 @@ minsources 2
 maxdistance 16.0
 EOF
 
-log_info "✓ chrony configuration created"
+log_info "[OK] chrony configuration created"
 ((CONFIGS_APPLIED++))
 
 # Set timezone
 log_info "Setting timezone to: $TIMEZONE"
 
 if timedatectl set-timezone "$TIMEZONE" 2>/dev/null; then
-    log_info "✓ Timezone set"
+    log_info "[OK] Timezone set"
     ((CONFIGS_APPLIED++))
 else
     log_warn "Failed to set timezone"
@@ -180,7 +180,7 @@ systemctl restart chronyd
 sleep 3
 
 if systemctl is-active --quiet chronyd; then
-    log_info "✓ chronyd service is running"
+    log_info "[OK] chronyd service is running"
 else
     log_error "Failed to start chronyd"
     exit 1
@@ -190,7 +190,7 @@ fi
 log_info "Verifying time synchronization..."
 
 if chronyc tracking &>/dev/null; then
-    log_info "✓ chrony is tracking time sources"
+    log_info "[OK] chrony is tracking time sources"
     
     log_info "Chrony tracking status:"
     chronyc tracking | while IFS= read -r line; do
